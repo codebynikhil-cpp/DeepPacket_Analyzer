@@ -54,6 +54,12 @@ bool PcapReader::open(const std::string& filename) {
     std::cout << "  Snaplen: " << global_header_.snaplen << " bytes" << std::endl;
     std::cout << "  Link type: " << global_header_.network 
               << (global_header_.network == 1 ? " (Ethernet)" : "") << std::endl;
+
+    if (global_header_.network != 1) {
+        std::cerr << "Error: Unsupported PCAP link type. This version parses Ethernet frames only.\n";
+        close();
+        return false;
+    }
     
     return true;
 }

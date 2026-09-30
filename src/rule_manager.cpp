@@ -4,6 +4,7 @@
 #include <iostream>
 #include <algorithm>
 #include <mutex>
+#include "vendor/nlohmann/json.hpp"
 
 
 namespace DPI {
@@ -114,7 +115,8 @@ void RuleManager::blockDomain(const std::string& domain) {
     std::unique_lock<std::shared_mutex> lock(domain_mutex_);
     
     if (domain.find('*') != std::string::npos) {
-        domain_patterns_.push_back(domain);
+        if (std::find(domain_patterns_.begin(), domain_patterns_.end(), domain) == domain_patterns_.end())
+            domain_patterns_.push_back(domain);
     } else {
         blocked_domains_.insert(domain);
     }
@@ -166,16 +168,11 @@ bool RuleManager::domainMatchesPattern(const std::string& domain, const std::str
 
 bool RuleManager::isDomainBlocked(const std::string& domain) const {
     std::shared_lock<std::shared_mutex> lock(domain_mutex_);
-    
-    // Check exact match
-    if (blocked_domains_.count(domain) > 0) {
-        return true;
-    }
-    
-    // Check patterns
     std::string lower_domain = domain;
     std::transform(lower_domain.begin(), lower_domain.end(), lower_domain.begin(),
                    [](unsigned char c) { return std::tolower(c); });
+    if (!lower_domain.empty() && lower_domain.back() == '.') lower_domain.pop_back();
+    if (blocked_domains_.count(lower_domain) > 0) return true;
     
     for (const auto& pattern : domain_patterns_) {
         std::string lower_pattern = pattern;
@@ -250,7 +247,7 @@ std::optional<RuleManager::BlockReason> RuleManager::shouldBlock(
     
     // Check domain
     if (!domain.empty() && isDomainBlocked(domain)) {
-        return BlockReason{BlockReason::DOMAIN, domain};
+        return BlockReason{BlockReason::DOMAIN_RULE, domain};
     }
     
     return std::nullopt;
@@ -261,90 +258,104 @@ std::optional<RuleManager::BlockReason> RuleManager::shouldBlock(
 // ============================================================================
 
 bool RuleManager::saveRules(const std::string& filename) const {
-    std::ofstream file(filename);
-    if (!file.is_open()) {
-        return false;
-    }
-    
-    // Save blocked IPs
-    file << "[BLOCKED_IPS]\n";
-    for (const auto& ip : getBlockedIPs()) {
-        file << ip << "\n";
-    }
-    
-    // Save blocked apps
-    file << "\n[BLOCKED_APPS]\n";
-    for (const auto& app : getBlockedApps()) {
-        file << appTypeToString(app) << "\n";
-    }
-    
-    // Save blocked domains
-    file << "\n[BLOCKED_DOMAINS]\n";
-    for (const auto& domain : getBlockedDomains()) {
-        file << domain << "\n";
-    }
-    
-    // Save blocked ports
-    file << "\n[BLOCKED_PORTS]\n";
+    nlohmann::json rules;
+    rules["blocked_ips"] = getBlockedIPs();
+    rules["blocked_domains"] = getBlockedDomains();
+    rules["blocked_apps"] = nlohmann::json::array();
+    for (auto app : getBlockedApps()) rules["blocked_apps"].push_back(appTypeToString(app));
     {
         std::shared_lock<std::shared_mutex> lock(port_mutex_);
-        for (uint16_t port : blocked_ports_) {
-            file << port << "\n";
-        }
+        rules["blocked_ports"] = blocked_ports_;
     }
-    
-    file.close();
-    std::cout << "[RuleManager] Rules saved to: " << filename << std::endl;
-    return true;
+    std::ofstream file(filename);
+    if (!file) return false;
+    file << rules.dump(2) << "\n";
+    return static_cast<bool>(file);
 }
 
 bool RuleManager::loadRules(const std::string& filename) {
-    std::ifstream file(filename);
-    if (!file.is_open()) {
+    std::ifstream file(filename, std::ios::binary | std::ios::ate);
+    if (!file) return false;
+    if (file.tellg() > 1024 * 1024) {
+        std::cerr << "[RuleManager] Rules file exceeds 1 MiB. Existing rules retained.\n";
         return false;
     }
-    
-    std::string line;
-    std::string current_key = "";
-    
-    while (std::getline(file, line)) {
-        if (line.find("\"blocked_ips\"") != std::string::npos) current_key = "ips";
-        else if (line.find("\"blocked_domains\"") != std::string::npos) current_key = "domains";
-        else if (line.find("\"blocked_apps\"") != std::string::npos) current_key = "apps";
-        else if (line.find("\"blocked_ports\"") != std::string::npos) current_key = "ports";
-        
-        size_t first_q = line.find('"');
-        if (first_q != std::string::npos) {
-            size_t second_q = line.find('"', first_q + 1);
-            if (second_q != std::string::npos) {
-                std::string val = line.substr(first_q + 1, second_q - first_q - 1);
-                if (val != "blocked_ips" && val != "blocked_domains" && val != "blocked_apps" && val != "blocked_ports") {
-                    if (current_key == "ips") blockIP(val);
-                    else if (current_key == "domains") blockDomain(val);
-                    else if (current_key == "apps") {
-                        for (int i = 0; i < static_cast<int>(AppType::APP_COUNT); i++) {
-                            if (appTypeToString(static_cast<AppType>(i)) == val) {
-                                blockApp(static_cast<AppType>(i));
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-        } else if (current_key == "ports") {
-            std::string digits = "";
-            for (char c : line) {
-                if (std::isdigit(c)) digits += c;
-            }
-            if (!digits.empty()) {
-                blockPort(static_cast<uint16_t>(std::stoi(digits)));
-            }
+    file.seekg(0);
+    try {
+        const auto rules = nlohmann::json::parse(file);
+        if (!rules.is_object()) throw std::runtime_error("Expected a JSON object");
+        std::unordered_set<uint32_t> ips;
+        std::unordered_set<AppType> apps;
+        std::unordered_set<std::string> domains;
+        std::vector<std::string> patterns;
+        std::unordered_set<uint16_t> ports;
+        for (const auto* key : {"blocked_ips", "blocked_apps", "blocked_domains", "blocked_ports"}) {
+            if (!rules.contains(key) || !rules[key].is_array())
+                throw std::runtime_error(std::string("Expected array: ") + key);
         }
+        for (const auto& entry : rules["blocked_ips"]) {
+            const std::string value = entry.get<std::string>();
+            std::istringstream parts(value);
+            std::string octet;
+            int count = 0;
+            while (std::getline(parts, octet, '.')) {
+                if (octet.empty() || octet.size() > 3 ||
+                    !std::all_of(octet.begin(), octet.end(), [](unsigned char c) { return c >= '0' && c <= '9'; }) ||
+                    std::stoi(octet) > 255) throw std::runtime_error("Invalid IPv4 rule");
+                ++count;
+            }
+            if (count != 4 || value.back() == '.') throw std::runtime_error("Invalid IPv4 rule");
+            ips.insert(parseIP(value));
+        }
+        for (const auto& entry : rules["blocked_apps"]) {
+            const auto value = entry.get<std::string>();
+            bool found = false;
+            for (int i = 0; i < static_cast<int>(AppType::APP_COUNT); ++i) {
+                const auto app = static_cast<AppType>(i);
+                if (appTypeToString(app) == value) { apps.insert(app); found = true; break; }
+            }
+            if (!found) throw std::runtime_error("Unknown application rule");
+        }
+        for (const auto& entry : rules["blocked_domains"]) {
+            auto value = entry.get<std::string>();
+            std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) { return std::tolower(c); });
+            const auto bare = value.rfind("*.", 0) == 0 ? value.substr(2) : value;
+            if (bare.empty() || bare.size() > 253 || bare.find('.') == std::string::npos || bare.back() == '.')
+                throw std::runtime_error("Invalid domain rule");
+            std::istringstream labels(bare);
+            std::string label;
+            while (std::getline(labels, label, '.')) {
+                if (label.empty() || label.size() > 63 || label.front() == '-' || label.back() == '-' ||
+                    !std::all_of(label.begin(), label.end(), [](unsigned char c) {
+                        return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-';
+                    })) throw std::runtime_error("Invalid domain rule");
+            }
+            if (value.rfind("*.", 0) == 0) {
+                if (std::find(patterns.begin(), patterns.end(), value) == patterns.end()) patterns.push_back(value);
+            } else domains.insert(value);
+        }
+        for (const auto& entry : rules["blocked_ports"]) {
+            if (!entry.is_number_integer()) throw std::runtime_error("Invalid port rule");
+            const auto port = entry.get<int64_t>();
+            if (port < 1 || port > 65535) throw std::runtime_error("Port outside 1..65535");
+            ports.insert(static_cast<uint16_t>(port));
+        }
+        // Validate the entire replacement before touching the current policy.
+        {
+            std::scoped_lock lock(ip_mutex_, app_mutex_, domain_mutex_, port_mutex_);
+            blocked_ips_.swap(ips);
+            blocked_apps_.swap(apps);
+            blocked_domains_.swap(domains);
+            domain_patterns_.swap(patterns);
+            blocked_ports_.swap(ports);
+        }
+        if (enforcement_) enforcement_->clearAll();
+        std::cout << "[RuleManager] Rules loaded from: " << filename << std::endl;
+        return true;
+    } catch (const std::exception& error) {
+        std::cerr << "[RuleManager] " << error.what() << ". Existing rules retained.\n";
+        return false;
     }
-    
-    file.close();
-    std::cout << "[RuleManager] Rules loaded from: " << filename << std::endl;
-    return true;
 }
 
 void RuleManager::clearAll() {
@@ -393,10 +404,12 @@ void RuleManager::reinstallAllWfpRules(const std::unordered_map<uint32_t, std::s
     // 3. Domain blocks - lookup known IPs from ip_to_domain
     {
         std::shared_lock<std::shared_mutex> lock(domain_mutex_);
-        for (const std::string& domain : blocked_domains_) {
+        std::vector<std::string> domains(blocked_domains_.begin(), blocked_domains_.end());
+        domains.insert(domains.end(), domain_patterns_.begin(), domain_patterns_.end());
+        for (const std::string& domain : domains) {
             std::vector<uint32_t> known_ips;
             for (const auto& kv : ip_to_domain) {
-                if (kv.second == domain) {
+                if (kv.second == domain || domainMatchesPattern(kv.second, domain)) {
                     known_ips.push_back(kv.first);
                 }
             }
@@ -429,4 +442,3 @@ RuleManager::RuleStats RuleManager::getStats() const {
 }
 
 } // namespace DPI
-

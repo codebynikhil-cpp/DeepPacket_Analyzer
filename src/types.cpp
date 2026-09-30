@@ -3,25 +3,28 @@
 #include <iomanip>
 #include <algorithm>
 #include <cctype>
+#include <initializer_list>
 
 namespace DPI {
+
+static bool isDomainOrSubdomain(const std::string& hostname,
+                                std::initializer_list<const char*> domains) {
+    for (const char* domain : domains) {
+        const std::string suffix(domain);
+        if (hostname == suffix ||
+            (hostname.size() > suffix.size() &&
+             hostname.compare(hostname.size() - suffix.size(), suffix.size(), suffix) == 0 &&
+             hostname[hostname.size() - suffix.size() - 1] == '.')) return true;
+    }
+    return false;
+}
 
 std::string FiveTuple::toString() const {
     std::ostringstream ss;
     
-    // Format IP addresses
-    auto formatIP = [](uint32_t ip) {
-        std::ostringstream s;
-        s << ((ip >> 0) & 0xFF) << "."
-          << ((ip >> 8) & 0xFF) << "."
-          << ((ip >> 16) & 0xFF) << "."
-          << ((ip >> 24) & 0xFF);
-        return s.str();
-    };
-    
-    ss << formatIP(src_ip) << ":" << src_port
+    ss << src_ip << ":" << src_port
        << " -> "
-       << formatIP(dst_ip) << ":" << dst_port
+       << dst_ip << ":" << dst_port
        << " (" << (protocol == 6 ? "TCP" : protocol == 17 ? "UDP" : "?") << ")";
     
     return ss.str();
@@ -124,7 +127,7 @@ AppType sniToAppType(const std::string& sni) {
     if (lower_sni.find("youtube") != std::string::npos ||
         lower_sni.find("googlevideo") != std::string::npos ||
         lower_sni.find("ytimg") != std::string::npos ||
-        lower_sni.find("youtu.be") != std::string::npos ||
+        isDomainOrSubdomain(lower_sni, {"youtu.be"}) ||
         lower_sni.find("yt3.ggpht") != std::string::npos) {
         return AppType::YOUTUBE;
     }
@@ -142,9 +145,9 @@ AppType sniToAppType(const std::string& sni) {
     // ── Facebook/Meta ──
     if (lower_sni.find("facebook") != std::string::npos ||
         lower_sni.find("fbcdn") != std::string::npos ||
-        lower_sni.find("fb.com") != std::string::npos ||
+        isDomainOrSubdomain(lower_sni, {"fb.com"}) ||
         lower_sni.find("fbsbx") != std::string::npos ||
-        lower_sni.find("meta.com") != std::string::npos) {
+        isDomainOrSubdomain(lower_sni, {"meta.com"})) {
         return AppType::FACEBOOK;
     }
     
@@ -156,15 +159,14 @@ AppType sniToAppType(const std::string& sni) {
     
     // ── WhatsApp ──
     if (lower_sni.find("whatsapp") != std::string::npos ||
-        lower_sni.find("wa.me") != std::string::npos) {
+        isDomainOrSubdomain(lower_sni, {"wa.me"})) {
         return AppType::WHATSAPP;
     }
     
     // ── Twitter/X ──
     if (lower_sni.find("twitter") != std::string::npos ||
         lower_sni.find("twimg") != std::string::npos ||
-        lower_sni.find("x.com") != std::string::npos ||
-        lower_sni.find("t.co") != std::string::npos) {
+        isDomainOrSubdomain(lower_sni, {"x.com", "t.co"})) {
         return AppType::TWITTER;
     }
     
@@ -207,17 +209,16 @@ AppType sniToAppType(const std::string& sni) {
     }
     
     // ── Microsoft Teams (check before general Microsoft) ──
-    if (lower_sni.find("teams.microsoft.com") != std::string::npos ||
-        lower_sni.find("teams.live.com") != std::string::npos) {
+    if (isDomainOrSubdomain(lower_sni, {"teams.microsoft.com", "teams.live.com"})) {
         return AppType::TEAMS;
     }
     
     // ── Microsoft ──
     if (lower_sni.find("microsoft") != std::string::npos ||
-        lower_sni.find("msn.com") != std::string::npos ||
+        isDomainOrSubdomain(lower_sni, {"msn.com"}) ||
         lower_sni.find("office") != std::string::npos ||
         lower_sni.find("azure") != std::string::npos ||
-        lower_sni.find("live.com") != std::string::npos ||
+        isDomainOrSubdomain(lower_sni, {"live.com"}) ||
         lower_sni.find("outlook") != std::string::npos ||
         lower_sni.find("bing") != std::string::npos ||
         lower_sni.find("windows") != std::string::npos) {
@@ -235,7 +236,7 @@ AppType sniToAppType(const std::string& sni) {
     
     // ── Telegram ──
     if (lower_sni.find("telegram") != std::string::npos ||
-        lower_sni.find("t.me") != std::string::npos) {
+        isDomainOrSubdomain(lower_sni, {"t.me"})) {
         return AppType::TELEGRAM;
     }
     
@@ -250,8 +251,7 @@ AppType sniToAppType(const std::string& sni) {
     
     // ── Spotify ──
     if (lower_sni.find("spotify") != std::string::npos ||
-        lower_sni.find("scdn.co") != std::string::npos ||
-        lower_sni.find("spoti.fi") != std::string::npos) {
+        isDomainOrSubdomain(lower_sni, {"scdn.co", "spoti.fi"})) {
         return AppType::SPOTIFY;
     }
     
@@ -269,7 +269,7 @@ AppType sniToAppType(const std::string& sni) {
     }
     
     // ── Zoom ──
-    if (lower_sni.find("zoom.us") != std::string::npos ||
+    if (isDomainOrSubdomain(lower_sni, {"zoom.us"}) ||
         lower_sni.find("zoomgov") != std::string::npos ||
         lower_sni.find("zoom") != std::string::npos) {
         return AppType::ZOOM;
@@ -293,7 +293,7 @@ AppType sniToAppType(const std::string& sni) {
     if (lower_sni.find("github") != std::string::npos ||
         lower_sni.find("githubusercontent") != std::string::npos ||
         lower_sni.find("github.io") != std::string::npos ||
-        lower_sni.find("ghcr.io") != std::string::npos) {
+        isDomainOrSubdomain(lower_sni, {"ghcr.io"})) {
         return AppType::GITHUB;
     }
     
@@ -329,7 +329,7 @@ AppType sniToAppType(const std::string& sni) {
     
     // ── Reddit ──
     if (lower_sni.find("reddit") != std::string::npos ||
-        lower_sni.find("redd.it") != std::string::npos ||
+        isDomainOrSubdomain(lower_sni, {"redd.it"}) ||
         lower_sni.find("redditmedia") != std::string::npos) {
         return AppType::REDDIT;
     }
@@ -391,7 +391,7 @@ AppType sniToAppType(const std::string& sni) {
     }
     
     // ── Medium ──
-    if (lower_sni.find("medium.com") != std::string::npos) {
+    if (isDomainOrSubdomain(lower_sni, {"medium.com"})) {
         return AppType::MEDIUM;
     }
     
@@ -407,7 +407,7 @@ AppType sniToAppType(const std::string& sni) {
     
     // ── Hugging Face & Kaggle (AI / Data Science) ──
     if (lower_sni.find("huggingface") != std::string::npos ||
-        lower_sni.find("hf.co") != std::string::npos) {
+        isDomainOrSubdomain(lower_sni, {"hf.co"})) {
         return AppType::HUGGINGFACE;
     }
     if (lower_sni.find("kaggle") != std::string::npos) {

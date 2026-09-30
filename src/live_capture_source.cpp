@@ -6,7 +6,7 @@
 namespace PacketAnalyzer {
 
 LiveCaptureSource::LiveCaptureSource(const std::string& device_name_or_index)
-    : input_spec_(device_name_or_index), resolved_device_(device_name_or_index) {
+    : input_spec_(device_name_or_index), resolved_device_(device_name_or_index), display_name_(device_name_or_index) {
 }
 
 LiveCaptureSource::~LiveCaptureSource() {
@@ -37,6 +37,7 @@ bool LiveCaptureSource::open() {
         for (const auto& iface : ifaces) {
             if (iface.index == target_idx) {
                 resolved_device_ = iface.name;
+                display_name_ = iface.description.empty() ? "Interface #" + input_spec_ : iface.description;
                 std::cout << "[LiveCapture] Selected Interface #" << target_idx 
                           << ": " << iface.description << " (" << iface.name << ")" << std::endl;
                 found = true;
@@ -58,6 +59,11 @@ bool LiveCaptureSource::open() {
     if (!handle_) {
         std::cerr << "[LiveCapture] Error opening device '" << resolved_device_ << "': " << errbuf << std::endl;
         std::cerr << "              (Check root / Administrator permissions)" << std::endl;
+        return false;
+    }
+    if (pcap_datalink(handle_) != 1) {
+        std::cerr << "[LiveCapture] Unsupported link type. This version parses Ethernet frames only.\n";
+        close();
         return false;
     }
 

@@ -25,6 +25,8 @@ cmake_install.cmake
 # ── Runtime output files ───────────────────────────────────────────────────────
 output.json
 rules_reload.flag
+rules_revision.txt
+rules_applied.txt
 *.log
 *.tmp
 
@@ -37,6 +39,9 @@ wfp_*.xml
 
 # ── Node.js ────────────────────────────────────────────────────────────────────
 node_modules/
+artifacts/
+test-results/
+playwright-report/
 
 # ── IDE / OS ───────────────────────────────────────────────────────────────────
 .vs/

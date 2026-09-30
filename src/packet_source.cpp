@@ -10,6 +10,7 @@ PcapLoader::fn_pcap_close       PcapLoader::p_close       = nullptr;
 PcapLoader::fn_pcap_next_ex     PcapLoader::p_next_ex     = nullptr;
 PcapLoader::fn_pcap_breakloop   PcapLoader::p_breakloop   = nullptr;
 PcapLoader::fn_pcap_stats       PcapLoader::p_stats       = nullptr;
+PcapLoader::fn_pcap_datalink    PcapLoader::p_datalink    = nullptr;
 #endif
 
 namespace PacketAnalyzer {

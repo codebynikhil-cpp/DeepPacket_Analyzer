@@ -1,456 +1,219 @@
-// ── Nav ─────────────────────────────────────────────────
-function setNav(el) {
-    document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
-    el.classList.add('active');
+import { $, text, html, escapeHtml as esc, number, compact, bytes, duration, renderIcons, getJson, toast, download } from './js/dom.js';
+import { TrafficCharts } from './js/charts.js';
+import { Inspector, PacketExplorer, FlowExplorer } from './js/explorer.js';
+import { NetworkGraph } from './js/network.js';
+import { RulesPanel } from './js/rules.js';
+
+renderIcons();
+const pages = {
+    overview:['Overview','Network overview','A clear view of every observed connection.'],
+    packets:['Packet explorer','Packet explorer','Inspect the frames behind your network activity.'],
+    flows:['Connections','Connection intelligence','Follow a connection from observation to classification.'],
+    apps:['Applications','Application intelligence','Understand the applications behind observed traffic.'],
+    domains:['Domains','Domain activity','Explore the names your network communicates with.'],
+    traffic:['DNS & HTTP','Visible application traffic','Inspect the names and requests observed in your capture.'],
+    rules:['Firewall rules','Traffic policy','Manage block rules and verify their loading state.'],
+    health:['Website health','Service availability','Reachability checks from this computer.'],
+    alerts:['Alerts','Events to investigate','Review signals in the observed traffic.'],
+    diagnostics:['Diagnostics','Engine diagnostics','Understand capture health, data scope, and limitations.']
+};
+let currentView = 'overview', latest = null, paused = false, sample = null, lastSignature = null;
+let healthRunning = false;
+const inspector = new Inspector(flow => navigatePackets({ flow }));
+const packets = new PacketExplorer(inspector);
+const flows = new FlowExplorer(inspector);
+const charts = new TrafficCharts(protocol => navigatePackets({ protocol }));
+const network = new NetworkGraph(ip => navigatePackets({ ip }), flow => inspector.connection(flow));
+const rules = new RulesPanel();
+
+function navigate(view) {
+    if (location.hash === `#${view}`) showView(view);
+    else location.hash = view;
 }
-
-// ── Toast ─────────────────────────────────────────────────
-function showToast(msg, type = 'success') {
-    const t = document.createElement('div');
-    t.className = 'toast toast-' + type;
-    t.textContent = msg;
-    document.body.appendChild(t);
-    setTimeout(() => t.classList.add('show'), 10);
-    setTimeout(() => { t.classList.remove('show'); setTimeout(() => t.remove(), 300); }, 3000);
+function navigatePackets(filter) { packets.filter(filter); navigate('packets'); }
+function showView(view) {
+    const requested = view || location.hash.slice(1);
+    currentView = requested === 'protocols' ? 'overview' : Object.hasOwn(pages, requested) ? requested : 'overview';
+    document.querySelectorAll('.view').forEach(section => { section.hidden = section.id !== currentView; });
+    document.querySelectorAll('.nav-link').forEach(link => {
+        const active = link.hash === `#${currentView}`;
+        link.classList.toggle('active', active);
+        if (active) link.setAttribute('aria-current', 'page'); else link.removeAttribute('aria-current');
+        link.title = link.textContent.trim();
+    });
+    const [label, title, description] = pages[currentView];
+    text('breadcrumbCurrent', label);
+    html('pageTitle', `${esc(title)}<span class="title-dot">.</span>`);
+    text('pageDescription', description);
+    document.title = `${label} \u00b7 DeepPacket Analyzer`;
+    if (currentView === 'overview') requestAnimationFrame(() => charts.resize());
+    if (currentView === 'health') fetchHealth();
+    window.scrollTo({ top:0, behavior:'instant' });
 }
+window.addEventListener('hashchange', () => showView());
+document.addEventListener('keydown', event => {
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k' && !$('inspector').open) {
+        event.preventDefault(); navigate('packets'); requestAnimationFrame(() => $('packetSearch').focus());
+    }
+});
 
-// ── Protocol Donut ───────────────────────────────────────
-let protoChart = null;
+function banner(message, info = false) {
+    $('statusBanner').hidden = !message;
+    $('statusBanner').classList.toggle('info', info);
+    text('statusBanner', message);
+}
+function updateStatus(data) {
+    const status = data.status || 'stale';
+    const labels = { live:'LIVE CAPTURE', offline:data.mode === 'live' ? 'CAPTURE STOPPED' : 'OFFLINE CAPTURE', stale:'TELEMETRY STALE', unavailable:'UNAVAILABLE' };
+    text('modeBadge', labels[status] || 'STATUS UNKNOWN');
+    $('modeBadge').className = `status-tag ${status === 'live' ? 'live' : status === 'stale' ? 'stale' : ''}`;
+    $('sidebarDot').className = `status-dot ${status}`;
+    text('statusText', status === 'live' ? 'Capture live' : status === 'offline' ? 'Saved capture' : 'Telemetry stale');
+    text('apiStatus', paused ? 'Updates paused' : 'API connected');
+    $('apiStatus').classList.add('connected');
+    const source = String(data.source_name || 'Source not available');
+    text('sourceName', source.split(/[\\/]/).pop());
+    $('sourceName').title = source;
+    const generated = Date.parse(data.generated_at);
+    text('lastUpdate', Number.isFinite(generated) ? `Snapshot ${new Date(generated).toLocaleTimeString()} \u00b7 ${new Date(generated).toLocaleDateString()}` : 'Snapshot time unavailable');
+    if (paused) banner('Dashboard updates are paused. Packet capture continues in the engine. Resume to see the latest data.', true);
+    else if (data.data_source === 'synthetic_fixture') banner('Synthetic demonstration capture. All values were computed by the engine from generated test frames; this is not a recording of a real network.', true);
+    else if (status === 'live') banner('');
+    else if (status === 'offline') banner(data.mode === 'live' ? 'Capture has stopped. Showing the last saved snapshot.' : 'Offline capture \u00b7 showing analyzed file data. The timeline uses timestamps from the capture.', true);
+    else banner('The engine is not reporting fresh telemetry. Showing the last saved data; rates and enforcement state are unavailable.');
+    text('kpiWfpStatus', status === 'live' ? data.wfp?.active ? 'Active \u00b7 IPv4' : data.protection_requested ? data.wfp?.status || 'Protection unavailable' : 'Monitor only' : 'Not live');
+}
+function updateRate(data) {
+    const time = Date.parse(data.generated_at);
+    const session = data.session_id || data.source_name;
+    let rate = null;
+    const reset = !sample || sample.session !== session || data.packets < sample.packets;
+    if (data.status === 'live' && sample?.session === session && time > sample.time && data.packets >= sample.packets) rate = (data.packets - sample.packets) * 1000 / (time - sample.time);
+    if (Number.isFinite(time) && (!sample || sample.session !== session || time > sample.time || data.packets < sample.packets)) sample = { time, packets:data.packets, session };
+    if (data.status !== 'live') { text('kpiRate','\u2014'); text('kpiRateSub','Available during live capture'); }
+    else if (rate !== null) { text('kpiRate', `${compact(Math.round(rate))}/s`); text('kpiRateSub','Between engine snapshots'); }
+    else if (reset) { text('kpiRate','\u2014'); text('kpiRateSub','Waiting for a second sample'); }
+}
+function renderTalkers(analysis) {
+    const entries = (analysis?.top_talkers || []).slice(0,6);
+    const maximum = Math.max(1, ...entries.map(item => item.sent_bytes + item.received_bytes));
+    html('topTalkers', entries.length ? entries.map((item, index) => `<button class="talker" type="button" data-ip="${esc(item.ip)}" title="Sent: ${number(item.sent_packets)} packets, ${bytes(item.sent_bytes)}. Received: ${number(item.received_packets)} packets, ${bytes(item.received_bytes)}."><span class="talker-top"><span class="talker-ip"><span class="rank">${String(index + 1).padStart(2,'0')}</span>${esc(item.ip)}</span><span class="talker-volume">${bytes(item.sent_bytes + item.received_bytes)}</span></span><span class="talker-track"><span class="talker-fill" style="width:${(item.sent_bytes + item.received_bytes) / maximum * 100}%"></span></span></button>`).join('') : '<p class="empty-inline">No endpoint totals available.<br>Run the updated engine to measure traffic.</p>');
+    const ports = (analysis?.ports || []).slice(0,6);
+    const maxCount = Math.max(1, ...ports.map(item => item.source_packets + item.destination_packets));
+    html('portActivity', ports.length ? ports.map(item => `<button class="port-row" type="button" data-port="${item.port}" data-protocol="${esc(item.protocol)}" title="${number(item.source_packets)} source observations \u00b7 ${number(item.destination_packets)} destination observations"><span>${esc(item.protocol)} <b>${item.port}</b></span><span class="port-track"><span style="width:${(item.source_packets + item.destination_packets) / maxCount * 100}%"></span></span><span>${compact(item.source_packets + item.destination_packets)} pkts</span></button>`).join('') : '<p class="empty-inline">No measured port activity yet.</p>');
+}
+$('topTalkers').addEventListener('click', event => { const button = event.target.closest('[data-ip]'); if (button) navigatePackets({ ip:button.dataset.ip }); });
+$('portActivity').addEventListener('click', event => { const button = event.target.closest('[data-port]'); if (button) navigatePackets({ port:button.dataset.port, protocol:button.dataset.protocol }); });
 
-// ── Throughput Line Chart ─────────────────────────────────
-let lineChart   = null;
-let ppsHistory  = [];
-let timeLabels  = [];
-let prevPackets = 0;
-
-function initLineChart() {
-    const ctx = document.getElementById('throughputChart').getContext('2d');
-    const gradient = ctx.createLinearGradient(0, 0, 0, 300);
-    gradient.addColorStop(0, 'rgba(59,130,246,0.25)');
-    gradient.addColorStop(1, 'rgba(59,130,246,0.0)');
-
-    lineChart = new Chart(ctx, {
-        type: 'line',
-        data: {
-            labels: timeLabels,
-            datasets: [{
-                label: 'Packets/sec',
-                data: ppsHistory,
-                borderColor: '#3b82f6',
-                backgroundColor: gradient,
-                borderWidth: 2,
-                pointRadius: 0,
-                pointHoverRadius: 5,
-                pointHoverBackgroundColor: '#3b82f6',
-                fill: true,
-                tension: 0.45
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            animation: { duration: 300 },
-            interaction: { mode: 'index', intersect: false },
-            plugins: {
-                legend: { display: false },
-                tooltip: {
-                    backgroundColor: '#111827',
-                    titleFont: { family: 'Inter', size: 12 },
-                    bodyFont: { family: 'Inter', size: 13, weight: '600' },
-                    padding: 10, cornerRadius: 7, displayColors: false,
-                    callbacks: {
-                        title: items => items[0].label,
-                        label: item  => `${item.raw} pkts/s`
-                    }
-                }
-            },
-            scales: {
-                x: { grid: { display: false, drawBorder: false }, ticks: { display: false } },
-                y: {
-                    grid: { color: '#f3f4f6', drawBorder: false },
-                    beginAtZero: true,
-                    ticks: { font: { family: 'Inter', size: 11 }, color: '#9ca3af', maxTicksLimit: 5 }
-                }
-            }
-        }
+// Paginate classifications too: large captures can contain thousands of names.
+const rankings = {};
+for (const kind of ['apps','domains']) {
+    const panel = $(kind).querySelector('.panel');
+    const controls = document.createElement('div'); controls.className = 'filter-bar';
+    controls.innerHTML = `<label class="search-field"><input id="${kind}Search" type="search" placeholder="Search ${kind}..." aria-label="Search ${kind}"></label>`;
+    panel.querySelector('.panel-head').after(controls);
+    const footer = document.createElement('div'); footer.className = 'table-footer';
+    footer.innerHTML = `<span id="${kind}PageInfo"></span><div class="pagination"><button class="icon-button" type="button" id="${kind}Prev" aria-label="Previous ${kind} page">&larr;</button><span id="${kind}Page"></span><button class="icon-button" type="button" id="${kind}Next" aria-label="Next ${kind} page">&rarr;</button></div>`;
+    panel.append(footer);
+    rankings[kind] = { page:0, values:{} };
+    $(`${kind}Search`).addEventListener('input', () => { rankings[kind].page = 0; renderRanking(kind); });
+    $(`${kind}Prev`).addEventListener('click', () => { rankings[kind].page--; renderRanking(kind); });
+    $(`${kind}Next`).addEventListener('click', () => { rankings[kind].page++; renderRanking(kind); });
+    $(`${kind}Tbody`).addEventListener('click', event => {
+        const button = event.target.closest('[data-flow-query]');
+        if (button) { $('flowSearch').value = button.dataset.flowQuery; $('flowProtocol').value = 'all'; $('flowPolicy').value = 'all'; flows.page = 0; flows.render(); navigate('flows'); }
     });
 }
-
-function updateLineChart(currentPackets) {
-    const pps = Math.max(0, currentPackets - prevPackets);
-    prevPackets = currentPackets;
-    const now = new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'});
-    timeLabels.push(now);
-    ppsHistory.push(pps);
-    if (timeLabels.length > 60) { timeLabels.shift(); ppsHistory.shift(); }
-    if (lineChart) lineChart.update();
+function renderRanking(kind, values) {
+    const state = rankings[kind]; if (values) state.values = values;
+    const all = Object.entries(state.values).filter(([,count]) => Number.isFinite(count)).sort((a,b) => b[1] - a[1]);
+    const total = all.reduce((sum,[,count]) => sum + count, 0);
+    const query = $(`${kind}Search`).value.toLowerCase();
+    const filtered = all.filter(([name]) => name.toLowerCase().includes(query));
+    const pages = Math.max(1, Math.ceil(filtered.length / 25));
+    state.page = Math.max(0, Math.min(state.page, pages - 1));
+    const visible = filtered.slice(state.page * 25,state.page * 25 + 25);
+    text(kind === 'apps' ? 'appBadge' : 'domainBadge', `${all.length} ${kind}`);
+    text(`${kind}PageInfo`, `${filtered.length} matching names \u00b7 share of ${number(total)} classification observations`);
+    text(`${kind}Page`, `${state.page + 1} / ${pages}`);
+    $(`${kind}Prev`).disabled = state.page === 0; $(`${kind}Next`).disabled = state.page + 1 >= pages;
+    html(`${kind}Tbody`, visible.length ? visible.map(([name,count],i) => `<tr><td class="mono dim">${String(state.page * 25 + i + 1).padStart(2,'0')}</td><td><button type="button" class="text-link ${kind === 'domains' ? 'mono' : ''}" data-flow-query="${esc(name)}">${esc(name)}</button></td><td class="number mono">${number(count)}</td><td class="mono dim">${total ? (count / total * 100).toFixed(1) : 0}%</td><td style="width:32%"><div class="share-track"><span style="width:${total ? count / total * 100 : 0}%"></span></div></td></tr>`).join('') : '<tr><td colspan="5" class="table-empty">No matching classification data.</td></tr>');
 }
-
-function renderProto(protocols, total) {
-    const tcp  = protocols?.TCP  || 0;
-    const udp  = protocols?.UDP  || 0;
-    const icmp = protocols?.ICMP || 0;
-    const ipv6 = protocols?.IPv6 || 0;
-    const rest = Math.max(0, total - tcp - udp - icmp - ipv6);
-
-    const colors = ['#3b82f6','#8b5cf6','#f59e0b','#10b981','#e5e7eb'];
-    const labels = ['TCP','UDP','ICMP','IPv6','Other'];
-    const values = [tcp, udp, icmp, ipv6, rest];
-
-    const ctx = document.getElementById('protoChart').getContext('2d');
-    if (protoChart) { protoChart.data.datasets[0].data = values; protoChart.update(); }
-    else {
-        protoChart = new Chart(ctx, {
-            type: 'doughnut',
-            data: { labels, datasets:[{ data:values, backgroundColor:colors, borderColor:'#fff', borderWidth:3, hoverOffset:6 }] },
-            options: {
-                cutout:'72%', maintainAspectRatio:true, animation:{animateRotate:true},
-                plugins:{ legend:{display:false}, tooltip:{callbacks:{label:c=>` ${c.label}: ${c.raw} pkts`}} }
-            }
-        });
-    }
-
-    const stats = document.getElementById('protoStats');
-    stats.innerHTML = labels.map((l,i) => {
-        if (values[i] === 0) return '';
-        const pct = total > 0 ? ((values[i]/total)*100).toFixed(1) : '0.0';
-        return `<div class="proto-row">
-            <div class="proto-dot" style="background:${colors[i]}"></div>
-            <div class="proto-name">${l}</div>
-            <div class="proto-count">${values[i]} pkts</div>
-            <div class="proto-pct">${pct}%</div>
-        </div>`;
-    }).join('');
+function renderEvents(data) {
+    text('dnsPill', data.dns?.length || 0); text('httpPill', data.http?.length || 0);
+    html('dnsList', data.dns?.length ? data.dns.map(name => `<li><span class="protocol-badge udp">DNS</span><span class="event-text">${esc(name)}</span></li>`).join('') : '<li class="empty-inline">No DNS names observed.</li>');
+    html('httpList', data.http?.length ? data.http.map(request => { const split = request.indexOf(' '); return `<li><span class="protocol-badge tcp">${esc(split > 0 ? request.slice(0,split) : 'HTTP')}</span><span class="event-text">${esc(split > 0 ? request.slice(split + 1) : request)}</span></li>`; }).join('') : '<li class="empty-inline">No visible HTTP requests observed.</li>');
+    const alerts = Array.isArray(data.alerts) ? data.alerts : [];
+    text('alertsBadge', `${alerts.length} events`); text('alertNavBadge', alerts.length); $('alertNavBadge').hidden = !alerts.length;
+    html('alertsList', alerts.length ? alerts.map(message => `<li><span class="decision match">REVIEW</span><span class="event-text">${esc(message)}</span></li>`).join('') : '<li class="empty-inline">No heuristic events in this snapshot. This does not establish that the traffic is safe.</li>');
 }
-
-// ── Application Table ────────────────────────────────────
-const APP_COLORS = ['#3b82f6','#8b5cf6','#10b981','#f59e0b','#ef4444','#06b6d4','#ec4899','#84cc16','#f97316','#6366f1','#14b8a6','#a855f7','#f43f5e','#0ea5e9','#78716c','#a3e635'];
-
-function renderApps(apps) {
-    const tbody = document.getElementById('appsTbody');
-    const badge = document.getElementById('appBadge');
-    if (!apps || !Object.keys(apps).length) {
-        tbody.innerHTML = '<tr><td colspan="5" class="log-empty">No application data</td></tr>';
-        return;
-    }
-    const entries = Object.entries(apps).sort((a,b)=>b[1]-a[1]);
-    const tot = entries.reduce((s,[,v])=>s+v,0);
-    badge.textContent = `${entries.length} apps detected`;
-    tbody.innerHTML = entries.map(([name,count],i)=>{
-        const pct = tot>0 ? ((count/tot)*100).toFixed(1) : '0.0';
-        const col = APP_COLORS[i % APP_COLORS.length];
-        return `<tr>
-            <td class="rank">${String(i+1).padStart(2,'0')}</td>
-            <td class="app-name">${name}</td>
-            <td class="conn-n">${count}</td>
-            <td class="pct-n">${pct}%</td>
-            <td><div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${col}"></div></div></td>
-        </tr>`;
-    }).join('');
+function renderDiagnostics(data) {
+    const fields = [['Capture mode',data.mode || 'Unknown'],['Source',data.source_name || 'Unknown'],['Snapshot state',data.status || 'Unknown'],['Engine state',data.engine_state || 'Unknown'],['Session',data.session_id || 'Legacy snapshot'],['Capture drops',number(data.capture_drops)],['Queue drops',number(data.processing_drops)],['Parse errors',number(data.parse_errors)],['Queue depth',number(data.queue_size)],['Peak queue depth',number(data.max_queue_depth)],['WFP reported state',data.wfp?.status || 'Unknown'],['Kernel filters in snapshot',number(data.wfp?.total_filters)],['Endpoint limit reached',data.analysis ? data.analysis.endpoints_limited ? 'Yes \u00b7 partial endpoint statistics' : 'No' : 'Unknown'],['Port limit reached',data.analysis ? data.analysis.ports_limited ? 'Yes \u00b7 partial port statistics' : 'No' : 'Unknown']];
+    html('engineDiagnostics',fields.map(([name,value]) => `<dt>${esc(name)}</dt><dd>${esc(value)}</dd>`).join(''));
 }
-
-function renderDomains(domains) {
-    const tbody = document.getElementById('domainsTbody');
-    const badge = document.getElementById('domainBadge');
-    if (!tbody) return;
-    if (!domains || !Object.keys(domains).length) {
-        tbody.innerHTML = '<tr><td colspan="5" class="log-empty">No domain data captured yet</td></tr>';
-        if (badge) badge.textContent = '0 domains';
-        return;
-    }
-    const entries = Object.entries(domains).sort((a,b)=>b[1]-a[1]);
-    const tot = entries.reduce((s,[,v])=>s+v,0);
-    if (badge) badge.textContent = `${entries.length} domain(s) observed`;
-    tbody.innerHTML = entries.map(([name,count],i)=>{
-        const pct = tot>0 ? ((count/tot)*100).toFixed(1) : '0.0';
-        const col = APP_COLORS[(i + 3) % APP_COLORS.length];
-        return `<tr>
-            <td class="rank">${String(i+1).padStart(2,'0')}</td>
-            <td class="app-name" style="font-family:monospace;font-size:13px">${name}</td>
-            <td class="conn-n">${count}</td>
-            <td class="pct-n">${pct}%</td>
-            <td><div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${col}"></div></div></td>
-        </tr>`;
-    }).join('');
-}
-
-function renderFlows(flows) {
-    const tbody = document.getElementById('flowsTbody');
-    const badge = document.getElementById('flowsBadge');
-    if (!tbody) return;
-    if (!flows || !flows.length) {
-        tbody.innerHTML = '<tr><td colspan="9" class="log-empty">Waiting for connection flows...</td></tr>';
-        return;
-    }
-    if (badge) badge.textContent = `${flows.length} recent flow(s)`;
-    // Render most recent flows at top
-    const reversed = [...flows].reverse();
-    tbody.innerHTML = reversed.map(f => {
-        const isDrop = f.policy === 'DROP';
-        const polBadge = isDrop ? '<span class="log-badge" style="background:#ef4444;color:#fff">DROP</span>' : '<span class="log-badge" style="background:#10b981;color:#fff">FORWARD</span>';
-        const enfBadge = f.enforcement.includes('WFP ACTIVE') ? '<span style="color:#10b981;font-weight:600">WFP ACTIVE</span>' : '<span style="color:#9ca3af">MONITOR</span>';
-        return `<tr>
-            <td style="color:#9ca3af;font-size:12px">${f.time}</td>
-            <td style="font-family:monospace;font-size:12px">${f.src_ip}:${f.src_port}</td>
-            <td style="font-family:monospace;font-size:12px">${f.dst_ip}:${f.dst_port}</td>
-            <td><span class="log-badge b-dns" style="font-size:10px">${f.protocol}</span></td>
-            <td style="font-family:monospace;font-size:12px;font-weight:500">${f.domain}</td>
-            <td style="font-weight:600">${f.application}</td>
-            <td><span style="font-size:11px;background:#f3f4f6;padding:2px 6px;border-radius:4px">${f.method}</span></td>
-            <td>${polBadge}</td>
-            <td style="font-size:11.5px">${enfBadge}</td>
-        </tr>`;
-    }).join('');
-}
-
-async function fetchHealth() {
-    try {
-        const r = await fetch('/health');
-        if (!r.ok) return;
-        const data = await r.json();
-        renderHealth(data.websites);
-    } catch(e) {}
-}
-
-function renderHealth(websites) {
-    const grid = document.getElementById('healthGrid');
-    if (!grid || !websites) return;
-
-    grid.innerHTML = Object.values(websites).map(site => {
-        let stateClass = 'green';
-        let stateText = site.state;
-        let latencyText = site.latency_ms ? `${site.latency_ms} ms` : (site.reason || '—');
-
-        if (site.state === 'BLOCKED BY POLICY') {
-            stateClass = 'red';
-            stateText = 'BLOCKED BY POLICY';
-            latencyText = 'Firewall active';
-        } else if (site.state === 'DOWN') {
-            stateClass = 'red';
-            stateText = 'DOWN';
-        }
-
-        return `<div class="kpi" style="padding:14px">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-                <span style="font-weight:700;font-size:14px">${site.name}</span>
-                <span style="font-size:10px;text-transform:uppercase;background:#f3f4f6;padding:2px 6px;border-radius:4px;color:#6b7280">${site.category || 'web'}</span>
-            </div>
-            <div class="kpi-val ${stateClass}" style="font-size:15px;font-weight:700">${stateText}</div>
-            <div class="kpi-sub" style="display:flex;justify-content:space-between;margin-top:4px">
-                <span>${site.domain}</span>
-                <span style="font-weight:600">${latencyText}</span>
-            </div>
-        </div>`;
-    }).join('');
-}
-
-// ── DNS List ─────────────────────────────────────────────
-function renderDns(dns) {
-    const ul = document.getElementById('dnsList');
-    document.getElementById('dnsPill').textContent = dns?.length || 0;
-    if (!dns?.length) { ul.innerHTML='<div class="log-empty">No DNS queries captured</div>'; return; }
-    ul.innerHTML = dns.map(d=>`<li class="log-li"><span class="log-badge b-dns">DNS</span><span class="log-txt">${d}</span></li>`).join('');
-}
-
-// ── HTTP List ────────────────────────────────────────────
-function renderHttp(http) {
-    const ul = document.getElementById('httpList');
-    document.getElementById('httpPill').textContent = http?.length || 0;
-    if (!http?.length) { ul.innerHTML='<div class="log-empty">No HTTP captured</div>'; return; }
-    ul.innerHTML = http.map(r=>{
-        const m = r.split(' ')[0];
-        const u = r.substring(r.indexOf(' ')+1);
-        const bc = m==='POST'?'b-post':'b-get';
-        return `<li class="log-li"><span class="log-badge ${bc}">${m}</span><span class="log-txt">${u}</span></li>`;
-    }).join('');
-}
-
-// ── Alerts ───────────────────────────────────────────────
-function renderAlerts(alerts) {
-    const n = alerts?.length || 0;
-    document.getElementById('alertsBadge').textContent = `${n} event${n!==1?'s':''}`;
-    document.getElementById('kpiAlerts').textContent = n;
-    const navBadge = document.getElementById('alertNavBadge');
-    navBadge.style.display = n>0 ? 'inline' : 'none';
-    navBadge.textContent = n;
-
-    const empty = document.getElementById('alertsEmpty');
-    const tbl   = document.getElementById('alertsTbl');
-    const tbody = document.getElementById('alertsTbody');
-    const kpi   = document.getElementById('kpiAlertCard');
-    const sub   = document.getElementById('kpiAlertSub');
-    const kpiV  = document.getElementById('kpiAlerts');
-
-    if (n===0) {
-        empty.style.display='flex'; tbl.style.display='none';
-        kpiV.className='kpi-val green'; sub.textContent='✓ System clean';
-    } else {
-        empty.style.display='none'; tbl.style.display='table';
-        kpiV.className='kpi-val red'; sub.textContent='⚠ Requires attention';
-        tbody.innerHTML = alerts.map(a=>`
-            <tr>
-                <td><span style="background:#fef2f2;color:#ef4444;border:1px solid #fecaca;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700">CRITICAL</span></td>
-                <td style="font-weight:500">${a}</td>
-                <td style="color:#9ca3af">Unresolved</td>
-            </tr>`).join('');
-    }
-}
-
-// ── Rules UI ─────────────────────────────────────────────
-async function loadRules() {
-    try {
-        const r = await fetch('/rules');
-        const rules = await r.json();
-        renderRules(rules);
-    } catch(e) { console.warn('Rules API error',e); }
-}
-
-function renderRuleList(ulId, pillId, items, type) {
-    const ul = document.getElementById(ulId);
-    document.getElementById(pillId).textContent = items?.length || 0;
-    if (!items?.length) { ul.innerHTML='<div class="rule-empty">No rules defined</div>'; return; }
-    ul.innerHTML = items.map(v=>`
-        <li class="rule-item">
-            <span>${v}</span>
-            <button class="btn-del" onclick="deleteRule('${type}','${v}')">Remove</button>
-        </li>`).join('');
-}
-
-function renderRules(rules) {
-    const total = (rules.blocked_domains?.length||0) + (rules.blocked_ips?.length||0) + (rules.blocked_apps?.length||0) + (rules.blocked_ports?.length||0);
-    document.getElementById('rulesBadge').textContent = `${total} active rule${total!==1?'s':''}`;
-    renderRuleList('domainRules','domainPill', rules.blocked_domains, 'domain');
-    renderRuleList('ipRules',    'ipPill',     rules.blocked_ips,     'ip');
-    renderRuleList('appRules',   'appPill',    rules.blocked_apps,    'app');
-    renderRuleList('portRules',  'portPill',   rules.blocked_ports,   'port');
-}
-
-async function addRule() {
-    const type  = document.getElementById('ruleType').value;
-    const value = document.getElementById('ruleValue').value.trim();
-    if (!value) { showToast('Please enter a value to block', 'error'); return; }
-
-    try {
-        const r = await fetch('/rules', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ type, value })
-        });
-        const data = await r.json();
-        if (data.success) {
-            renderRules(data.rules);
-            document.getElementById('ruleValue').value = '';
-            showToast(`✓ Blocked ${type}: ${value}`);
-            if (type === 'domain' || type === 'ip') {
-                setTimeout(() => showToast('Note: Re-open browser tab/app for block to affect active connections', 'info'), 1500);
-            }
-            fetchHealth();
-        } else {
-            showToast('Failed to save rule: ' + (data.error || 'unknown error'), 'error');
-        }
-    } catch(e) {
-        showToast('Cannot reach server. Is node server.js running?', 'error');
-        console.error('addRule error:', e);
-    }
-}
-
-async function deleteRule(type, value) {
-    try {
-        const r = await fetch('/rules', {
-            method: 'DELETE',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ type, value })
-        });
-        const data = await r.json();
-        if (data.success) {
-            renderRules(data.rules);
-            showToast(`✓ Unblocked ${type}: ${value}`);
-            fetchHealth();
-        }
-    } catch(e) {
-        showToast('Cannot reach server', 'error');
-    }
-}
-
-// ── Main Update ──────────────────────────────────────────
 function updateDashboard(data) {
-    const total = data.packets || 0;
-    const bytes = data.bytes   || 0;
-    const mode  = data.mode    || 'offline';
-    const src   = data.source_name || 'pcap';
-    const protectReq = data.protection_requested || false;
-
-    const modeText = document.getElementById('modeText');
-    if (modeText) {
-        if (mode === 'live') {
-            const protTag = protectReq ? ' · <span style="color:#10b981">PROTECT ON</span>' : ' · <span style="color:#f59e0b">MONITOR ONLY</span>';
-            modeText.innerHTML = `<span style="color:#10b981">LIVE ●</span> ${src}${protTag}`;
-        } else {
-            modeText.innerHTML = `<span style="color:#6366f1">OFFLINE 📄</span> ${src}`;
-        }
-    }
-
-    document.getElementById('kpiPackets').textContent = total.toLocaleString();
-    document.getElementById('kpiBytes').textContent = bytes >= 1048576
-        ? (bytes/1048576).toFixed(2)+' MB'
-        : bytes >= 1024 ? (bytes/1024).toFixed(2)+' KB' : bytes+' B';
-    document.getElementById('kpiConns').textContent   = (data.connections ?? '—').toLocaleString();
-    document.getElementById('kpiDropped').textContent = (data.dropped    ?? 0).toLocaleString();
-    
-    if (document.getElementById('kpiCapDrops')) {
-        document.getElementById('kpiCapDrops').textContent = (data.capture_drops ?? 0).toLocaleString();
-    }
-    if (document.getElementById('kpiProcDrops')) {
-        document.getElementById('kpiProcDrops').textContent = (data.processing_drops ?? 0).toLocaleString();
-    }
-
-    const wfp = data.wfp;
-    if (document.getElementById('kpiWfpStatus')) {
-        const wfpEl  = document.getElementById('kpiWfpStatus');
-        const wfpSub = document.getElementById('kpiWfpSub');
-        if (wfp && wfp.active) {
-            wfpEl.className = 'kpi-val green';
-            wfpEl.textContent = 'ACTIVE';
-            wfpSub.textContent = `Protection ON · ${wfp.total_filters} kernel filter(s)`;
-        } else if (protectReq) {
-            wfpEl.className = 'kpi-val red';
-            wfpEl.textContent = 'NO ADMIN';
-            wfpSub.textContent = 'Run terminal as Admin for WFP';
-        } else {
-            wfpEl.className = 'kpi-val';
-            wfpEl.textContent = 'OFF';
-            wfpSub.textContent = 'Protection OFF (Monitor Mode)';
-        }
-    }
-
-    document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString();
-    document.getElementById('statusText').textContent = (mode === 'live' ? 'Live Capture · ' : 'Offline PCAP · ') + new Date().toLocaleTimeString();
-
-    renderProto(data.protocols, total);
-    updateLineChart(total);
-    renderApps(data.applications);
-    renderDomains(data.domains);
-    renderFlows(data.flows);
-    renderDns(data.dns);
-    renderHttp(data.http);
-    renderAlerts(data.alerts);
+    updateStatus(data);
+    updateRate(data);
+    // Old snapshots may have no timestamp; their contents form the stable signature.
+    const signature = data.generated_at ? `${data.session_id || ''}:${data.generated_at}` : JSON.stringify(data);
+    if (signature === lastSignature) { latest = data; renderDiagnostics(data); return; }
+    if (latest?.session_id && data.session_id && latest.session_id !== data.session_id) { packets.selected = null; packets.page = 0; flows.page = 0; }
+    latest = data;
+    lastSignature = signature;
+    text('kpiPackets',number(data.packets)); text('kpiBytes',bytes(data.bytes)); text('kpiConns',number(data.connections)); text('kpiDropped',number(data.dropped));
+    text('kpiCapDrops',number(data.capture_drops)); text('kpiProcDrops',number(data.processing_drops)); text('parseErrors',number(data.parse_errors));
+    text('kpiEndpoints',number(data.analysis?.tracked_endpoints));
+    text('endpointScope',data.analysis?.endpoints_limited ? 'Limit reached \u00b7 partial inventory' : 'Unique observed addresses');
+    text('captureDuration',duration(data.analysis?.capture_duration_ms));
+    text('footerScope',data.analysis ? `${data.analysis.recent_packets.length} retained packets \u00b7 ${data.flows?.length || 0} recent flows` : 'Legacy snapshot \u00b7 extended metadata unavailable');
+    charts.update(data); network.update(data.flows); packets.update(data); flows.update(data.flows); renderTalkers(data.analysis);
+    renderRanking('apps',data.applications || {}); renderRanking('domains',data.domains || {}); renderEvents(data); renderDiagnostics(data);
+    $('exportSnapshot').disabled = false;
 }
-
-// ── Polling ──────────────────────────────────────────────
+let dataRunning = false;
 async function fetchData() {
+    if (dataRunning || paused) return;
+    dataRunning = true;
     try {
-        const r = await fetch('/data');
-        if (r.ok) updateDashboard(await r.json());
-    } catch(e) {
-        document.getElementById('statusText').textContent = 'API unreachable';
-    }
+        const data = await getJson('/data',8000);
+        if (!paused) updateDashboard(data);
+    } catch (error) {
+        text('apiStatus','Data unavailable'); $('apiStatus').classList.remove('connected');
+        text('statusText','Data unavailable'); $('sidebarDot').className = 'status-dot stale';
+        text('modeBadge','DATA UNAVAILABLE'); $('modeBadge').className = 'status-tag stale';
+        text('kpiRate','\u2014'); text('kpiWfpStatus','Unknown');
+        banner(`${error.message}. ${latest ? 'Previously received data is still displayed.' : 'Start the engine or open a PCAP from the terminal to populate the workspace.'}`);
+    } finally { dataRunning = false; }
 }
-
-loadRules();
-initLineChart();
-fetchData();
-fetchHealth();
-setInterval(fetchData, 500);   // 500ms fast polling for live streaming metrics
-setInterval(fetchHealth, 8000); // 8s periodic health check updates
-setInterval(loadRules, 5000);   // refresh rules every 5s
-
+async function pollData() { await fetchData(); setTimeout(pollData, document.hidden ? 3000 : 1000); }
+async function pollRules() { await rules.load(); setTimeout(pollRules,5000); }
+async function fetchHealth() {
+    if (healthRunning || currentView !== 'health') return;
+    healthRunning = true;
+    try {
+        text('healthBadge','Checking...');
+        const data = await getJson('/health',60000);
+        const sites = Object.values(data.websites || {});
+        html('healthGrid',sites.length ? sites.map(site => `<article class="health-card"><div class="health-card-head"><h3>${esc(site.name)}</h3><span class="subtle-badge">${esc(site.category || 'website')}</span></div><p class="health-domain">${esc(site.domain)}</p><div class="health-state ${site.state === 'DOWN' ? 'down' : site.state === 'POLICY MATCH' ? 'policy' : ''}"><strong>${esc(site.state)}</strong><span>${site.latency_ms != null ? `${number(site.latency_ms)} ms` : '\u2014'}</span></div><p class="health-reason">${esc(site.reason || 'HTTPS response received')}</p></article>`).join('') : '<p class="empty-inline">No websites configured in critical_websites.json.</p>');
+        text('healthBadge',`Checked ${new Date(data.last_updated).toLocaleTimeString()}`);
+    } catch (error) { text('healthBadge','Probe unavailable'); html('healthGrid',`<p class="empty-inline">Website probes could not complete: ${esc(error.message)}</p>`); }
+    finally { healthRunning = false; }
+}
+async function pollHealth() { await fetchHealth(); setTimeout(pollHealth,15000); }
+$('pauseUpdates').addEventListener('click', () => {
+    paused = !paused; $('pauseUpdates').setAttribute('aria-pressed',String(paused));
+    $('pauseUpdates').innerHTML = `<span data-icon="${paused ? 'play' : 'pause'}"></span><span>${paused ? 'Resume updates' : 'Pause updates'}</span>`;
+    renderIcons($('pauseUpdates'));
+    if (latest) updateStatus(latest);
+    if (!paused) { sample = null; text('kpiRate','\u2014'); fetchData(); }
+    else banner('Dashboard updates are paused. Packet capture continues in the engine. Resume to see the latest data.',true);
+});
+$('exportSnapshot').disabled = true;
+$('exportSnapshot').addEventListener('click', () => {
+    if (!latest) return;
+    download(JSON.stringify(latest,null,2),'application/json','deeppacket-snapshot.json');
+    toast('Exported the current telemetry snapshot, including its retention limits.');
+});
+showView();
+renderRanking('apps'); renderRanking('domains'); renderEvents({}); renderDiagnostics({});
+pollData(); pollRules(); pollHealth();

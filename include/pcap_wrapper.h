@@ -71,6 +71,7 @@
       typedef int (*fn_pcap_next_ex)(pcap_t *, struct pcap_pkthdr **, const unsigned char **);
       typedef void (*fn_pcap_breakloop)(pcap_t *);
       typedef int (*fn_pcap_stats)(pcap_t *, struct pcap_stat *);
+      typedef int (*fn_pcap_datalink)(pcap_t *);
 
       static bool init() {
           static bool initialized = false;
@@ -91,6 +92,7 @@
           p_next_ex     = (fn_pcap_next_ex)GetProcAddress(module, "pcap_next_ex");
           p_breakloop   = (fn_pcap_breakloop)GetProcAddress(module, "pcap_breakloop");
           p_stats       = (fn_pcap_stats)GetProcAddress(module, "pcap_stats");
+          p_datalink    = (fn_pcap_datalink)GetProcAddress(module, "pcap_datalink");
 #else
           void* module = dlopen("libpcap.so", RTLD_LAZY);
           if (!module) module = dlopen("libpcap.so.1", RTLD_LAZY);
@@ -104,8 +106,9 @@
           p_next_ex     = (fn_pcap_next_ex)dlsym(module, "pcap_next_ex");
           p_breakloop   = (fn_pcap_breakloop)dlsym(module, "pcap_breakloop");
           p_stats       = (fn_pcap_stats)dlsym(module, "pcap_stats");
+          p_datalink    = (fn_pcap_datalink)dlsym(module, "pcap_datalink");
 #endif
-          available = (p_findalldevs && p_freealldevs && p_open_live && p_close && p_next_ex);
+          available = (p_findalldevs && p_freealldevs && p_open_live && p_close && p_next_ex && p_datalink);
           return available;
       }
 
@@ -116,6 +119,7 @@
       static fn_pcap_next_ex     p_next_ex;
       static fn_pcap_breakloop   p_breakloop;
       static fn_pcap_stats       p_stats;
+      static fn_pcap_datalink    p_datalink;
   };
 
   #define pcap_findalldevs PcapLoader::p_findalldevs
@@ -125,6 +129,7 @@
   #define pcap_next_ex     PcapLoader::p_next_ex
   #define pcap_breakloop   PcapLoader::p_breakloop
   #define pcap_stats       PcapLoader::p_stats
+  #define pcap_datalink    PcapLoader::p_datalink
 #endif
 
 #endif // PCAP_WRAPPER_H

@@ -15,8 +15,8 @@ namespace DPI {
 // Five-Tuple: Uniquely identifies a connection/flow
 // ============================================================================
 struct FiveTuple {
-    uint32_t src_ip;
-    uint32_t dst_ip;
+    std::string src_ip;
+    std::string dst_ip;
     uint16_t src_port;
     uint16_t dst_port;
     uint8_t  protocol;  // TCP=6, UDP=17
@@ -42,8 +42,8 @@ struct FiveTupleHash {
     size_t operator()(const FiveTuple& tuple) const {
         // Simple but effective hash combining all fields
         size_t h = 0;
-        h ^= std::hash<uint32_t>{}(tuple.src_ip) + 0x9e3779b9 + (h << 6) + (h >> 2);
-        h ^= std::hash<uint32_t>{}(tuple.dst_ip) + 0x9e3779b9 + (h << 6) + (h >> 2);
+        h ^= std::hash<std::string>{}(tuple.src_ip) + 0x9e3779b9 + (h << 6) + (h >> 2);
+        h ^= std::hash<std::string>{}(tuple.dst_ip) + 0x9e3779b9 + (h << 6) + (h >> 2);
         h ^= std::hash<uint16_t>{}(tuple.src_port) + 0x9e3779b9 + (h << 6) + (h >> 2);
         h ^= std::hash<uint16_t>{}(tuple.dst_port) + 0x9e3779b9 + (h << 6) + (h >> 2);
         h ^= std::hash<uint8_t>{}(tuple.protocol) + 0x9e3779b9 + (h << 6) + (h >> 2);
@@ -140,6 +140,7 @@ AppType sniToAppType(const std::string& sni);
 
 struct AppClassification {
     AppType app = AppType::UNKNOWN;
+    std::string method = "Unknown";
     std::string sni_or_host = "";
     std::string http_method = "";
     std::string http_path = "";
@@ -167,6 +168,7 @@ enum class PacketAction {
 };
 
 struct FlowRecord {
+    uint64_t packets = 0, bytes = 0, first_seen_us = 0, last_seen_us = 0;
     std::string timestamp;
     std::string src_ip;
     uint16_t    src_port = 0;
@@ -175,7 +177,9 @@ struct FlowRecord {
     std::string protocol;       // "TCP", "UDP", "ICMP"
     std::string domain;         // e.g. "github.com", "unstop.com", "UNKNOWN"
     std::string application;    // e.g. "GitHub", "Unstop", "UNKNOWN"
-    std::string method;         // "TLS SNI", "HTTP Host", "QUIC SNI", "DNS Correlation", "Port Heuristic"
+    std::string method;         // "TLS SNI", "HTTP Host", "DNS Correlation", "Port Heuristic"
+    std::string confidence;     // Evidence strength, not a calibrated probability
+    std::string policy_reason;  // Rule or heuristic that matched
     std::string policy;         // "FORWARD", "DROP"
     std::string enforcement;    // "WFP ACTIVE", "MONITOR ONLY"
 };
@@ -189,7 +193,7 @@ struct Connection {
     AppType app_type = AppType::UNKNOWN;
     std::string sni;             // Server Name Indication / Domain (if detected)
     std::string app_name;        // Resolved friendly app name (e.g. "GitHub")
-    std::string detection_method = "Port Heuristic"; // "TLS SNI", "HTTP Host", "QUIC SNI", "DNS Correlation", "Port Heuristic"
+    std::string detection_method = "Port Heuristic"; // "TLS SNI", "HTTP Host", "DNS Correlation", "Port Heuristic"
     std::string enforcement_state = "MONITOR ONLY";
     
     uint64_t packets_in = 0;

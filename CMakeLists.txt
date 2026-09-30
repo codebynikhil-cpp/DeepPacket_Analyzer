@@ -21,6 +21,7 @@ set(SOURCES
     src/connection_tracker.cpp
     src/rule_manager.cpp
     src/stats_collector.cpp
+    src/traffic_analytics.cpp
     src/wfp_enforcement.cpp
 )
 
@@ -44,4 +45,3 @@ if(WIN32)
     # Link Windows socket, concurrency, and WFP libraries
     target_link_libraries(PacketInspector ws2_32 fwpuclnt)
 endif()
-

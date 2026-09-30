@@ -16,6 +16,9 @@
 #include <thread>
 #include <csignal>
 #include <atomic>
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 using namespace DPI;
 using namespace PacketAnalyzer;
@@ -24,6 +27,27 @@ using namespace PacketAnalyzer;
 static std::atomic<bool> g_running{true};
 static PacketQueue* g_active_queue = nullptr;
 static LiveCaptureSource* g_live_source = nullptr;
+
+static void acknowledgeRules(const std::string& revision) {
+    if (revision.empty()) return;
+    std::ofstream applied("rules_applied.txt.tmp", std::ios::trunc);
+    if (!applied) return;
+    applied << revision;
+    applied.close();
+    if (!applied) return;
+#ifdef _WIN32
+    MoveFileExA("rules_applied.txt.tmp", "rules_applied.txt", MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH);
+#else
+    std::rename("rules_applied.txt.tmp", "rules_applied.txt");
+#endif
+}
+
+static std::string readRevision(const char* filename) {
+    std::ifstream file(filename);
+    std::string revision;
+    std::getline(file, revision);
+    return revision;
+}
 
 void signalHandler(int signum) {
     std::cout << "\n[System] Signal (" << signum << ") received. Shutting down cleanly..." << std::endl;
@@ -41,7 +65,7 @@ public:
     OutputWriter(const std::string& filename) {
         if (!filename.empty()) {
             outFile.open(filename, std::ios::binary);
-            PcapGlobalHeader hdr;
+            PcapGlobalHeader hdr{0xa1b2c3d4, 2, 4, 0, 0, 65535, 1};
             outFile.write(reinterpret_cast<const char*>(&hdr), sizeof(hdr));
         }
     }
@@ -150,7 +174,12 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    connection_tracker.getRuleManager().loadRules("rules.json");
+    std::string loaded_revision;
+    const auto startup_revision = readRevision("rules_revision.txt");
+    if (connection_tracker.getRuleManager().loadRules("rules.json")) {
+        loaded_revision = startup_revision;
+        acknowledgeRules(loaded_revision);
+    }
     if (wfp.isActive()) {
         connection_tracker.reinstallWfpRules();
     }
@@ -168,15 +197,23 @@ int main(int argc, char* argv[]) {
     std::thread rulesReloadThread([&]() {
         while (g_running) {
             std::this_thread::sleep_for(std::chrono::milliseconds(500));
+            if (!g_running) break;
+            const auto saved_revision = readRevision("rules_revision.txt");
             std::ifstream flagFile("rules_reload.flag");
-            if (flagFile.is_open()) {
+            if (flagFile.is_open() || (!saved_revision.empty() && saved_revision != loaded_revision)) {
+                std::string revision;
+                std::getline(flagFile, revision);
                 flagFile.close();
+                if (revision.empty()) revision = saved_revision;
                 std::remove("rules_reload.flag");
                 std::cout << "[RuleManager] Hot-reloading rules from rules.json...\n";
-                connection_tracker.getRuleManager().clearAll();
-                connection_tracker.getRuleManager().loadRules("rules.json");
-                if (wfp.isActive()) {
+                const bool loaded = connection_tracker.getRuleManager().loadRules("rules.json");
+                if (loaded && wfp.isActive()) {
                     connection_tracker.reinstallWfpRules();
+                }
+                if (loaded) {
+                    loaded_revision = revision;
+                    acknowledgeRules(revision);
                 }
             }
         }
@@ -216,9 +253,8 @@ int main(int argc, char* argv[]) {
                 }
 
                 ParsedPacket parsed_pkt;
-                if (!PacketParser::parse(raw_pkt, parsed_pkt)) continue;
+                if (!PacketParser::parse(raw_pkt, parsed_pkt)) { stats.recordParseError(); continue; }
 
-                stats.update(raw_pkt, parsed_pkt);
 
                 std::optional<AppClassification> classification = std::nullopt;
                 if (fast_path.needsInspection(parsed_pkt)) {
@@ -226,6 +262,7 @@ int main(int argc, char* argv[]) {
                 }
 
                 PacketAction action = connection_tracker.process(parsed_pkt, classification);
+                stats.update(raw_pkt, parsed_pkt, classification, action);
                 if (action == PacketAction::FORWARD && !output_arg.empty()) {
                     output.writePacket(raw_pkt);
                 }
@@ -275,9 +312,8 @@ int main(int argc, char* argv[]) {
             packet_count++;
 
             ParsedPacket parsed_pkt;
-            if (!PacketParser::parse(raw_pkt, parsed_pkt)) continue;
+            if (!PacketParser::parse(raw_pkt, parsed_pkt)) { stats.recordParseError(); continue; }
 
-            stats.update(raw_pkt, parsed_pkt);
 
             std::optional<AppClassification> classification = std::nullopt;
             if (fast_path.needsInspection(parsed_pkt)) {
@@ -285,18 +321,21 @@ int main(int argc, char* argv[]) {
             }
 
             PacketAction action = connection_tracker.process(parsed_pkt, classification);
+                stats.update(raw_pkt, parsed_pkt, classification, action);
             if (action == PacketAction::FORWARD && !output_arg.empty()) {
                 output.writePacket(raw_pkt);
             }
 
-            stats.checkAndPrint(connection_tracker.getDnsQueries(),
-                                connection_tracker.getHttpRequests(),
-                                connection_tracker.getAlerts(),
-                                connection_tracker.getApplicationStats(),
-                                connection_tracker.getDomainStats(),
-                                connection_tracker.getRecentFlows(),
-                                connection_tracker.getConnectionsCount(),
-                                connection_tracker.getDroppedCount());
+            if (packet_count % 1000 == 0) {
+                stats.checkAndPrint(connection_tracker.getDnsQueries(),
+                                    connection_tracker.getHttpRequests(),
+                                    connection_tracker.getAlerts(),
+                                    connection_tracker.getApplicationStats(),
+                                    connection_tracker.getDomainStats(),
+                                    connection_tracker.getRecentFlows(),
+                                    connection_tracker.getConnectionsCount(),
+                                    connection_tracker.getDroppedCount());
+            }
         }
 
         stats.printFinal(connection_tracker.getDnsQueries(),
@@ -321,4 +360,3 @@ int main(int argc, char* argv[]) {
     std::cout << "[Pipeline] Analysis complete. Clean shutdown successful." << std::endl;
     return 0;
 }
-

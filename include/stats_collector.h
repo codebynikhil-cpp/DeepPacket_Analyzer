@@ -4,6 +4,7 @@
 #include "pcap_reader.h"
 #include "packet_parser.h"
 #include "types.h"
+#include "traffic_analytics.h"
 #include <chrono>
 #include <cstdint>
 #include <map>
@@ -43,7 +44,9 @@ public:
         protection_requested_ = requested;
     }
 
-    void update(const PacketAnalyzer::RawPacket& raw, const PacketAnalyzer::ParsedPacket& parsed);
+    void update(const PacketAnalyzer::RawPacket& raw, const PacketAnalyzer::ParsedPacket& parsed,
+                const std::optional<AppClassification>& classification, PacketAction action);
+    void recordParseError() { std::lock_guard<std::mutex> lock(mutex_); ++parse_errors_; }
     
     void checkAndPrint(const std::vector<std::string>& dns, 
                       const std::vector<std::string>& http, 
@@ -80,10 +83,14 @@ private:
 
     uint64_t total_packets_ = 0;
     uint64_t total_bytes_ = 0;
+    uint64_t parse_errors_ = 0;
+    TrafficAnalytics analytics_;
+    std::string session_id_;
     
     uint64_t tcp_packets_ = 0;
     uint64_t udp_packets_ = 0;
     uint64_t icmp_packets_ = 0;
+    uint64_t arp_packets_ = 0;
     uint64_t other_packets_ = 0;
     
     uint64_t interval_packets_ = 0;
@@ -104,10 +111,10 @@ private:
                     size_t connections, 
                     size_t dropped,
                     uint64_t capture_drops,
-                    uint64_t processing_drops);
+                    uint64_t processing_drops,
+                    bool final_snapshot);
 };
 
 } // namespace DPI
 
 #endif // STATS_COLLECTOR_H
-

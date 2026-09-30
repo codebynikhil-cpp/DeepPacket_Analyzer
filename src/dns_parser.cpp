@@ -4,7 +4,7 @@
 namespace DPI {
 
 bool DNSParser::isDNSQuery(const uint8_t* payload, size_t length) {
-    if (length < 12) return false;
+    if (!payload || length < 12) return false;
     
     // Check QR bit (byte 2, bit 7) - should be 0 for query
     uint8_t flags = payload[2];
@@ -30,15 +30,15 @@ std::optional<std::string> DNSParser::extractQuery(const uint8_t* payload, size_
         uint8_t label_length = payload[offset];
         
         if (label_length == 0) {
-            break;
+            return offset + 5 <= length && !domain.empty() ? std::optional<std::string>(domain) : std::nullopt;
         }
         
         if (label_length > 63) {
-            break; // Compression pointer or invalid
+            return std::nullopt; // Compression pointer or invalid
         }
         
         offset++;
-        if (offset + label_length > length) break;
+        if (offset + label_length > length || domain.size() + label_length + 1 > 253) return std::nullopt;
         
         if (!domain.empty()) {
             domain += '.';
@@ -47,7 +47,7 @@ std::optional<std::string> DNSParser::extractQuery(const uint8_t* payload, size_
         offset += label_length;
     }
     
-    return domain.empty() ? std::nullopt : std::optional<std::string>(domain);
+    return std::nullopt;
 }
 
 // Skip over a DNS name (handles compression pointers)
@@ -60,8 +60,9 @@ size_t DNSParser::skipName(const uint8_t* payload, size_t length, size_t offset)
         }
         if ((len & 0xC0) == 0xC0) {
             // Compression pointer: 2 bytes total
-            return offset + 2;
+            return offset + 2 <= length ? offset + 2 : 0;
         }
+        if (len > 63 || offset + 1 + len > length) return 0;
         offset += 1 + len;
     }
     return 0; // error
@@ -85,13 +86,14 @@ std::vector<DnsAnswer> DNSParser::extractAnswers(const uint8_t* payload, size_t 
     while (offset < length) {
         uint8_t llen = payload[offset];
         if (llen == 0) { offset++; break; }
-        if ((llen & 0xC0) == 0xC0) { offset += 2; break; }
-        if (llen > 63 || offset + 1 + llen > length) break;
+        if ((llen & 0xC0) == 0xC0) { if (offset + 2 > length) return results; offset += 2; break; }
+        if (llen > 63 || offset + 1 + llen > length) return results;
         if (!qname.empty()) qname += '.';
         qname += std::string(reinterpret_cast<const char*>(payload + offset + 1), llen);
         offset += 1 + llen;
     }
     // Skip QTYPE + QCLASS (4 bytes)
+    if (offset + 4 > length) return results;
     offset += 4;
 
     // Parse answer records
@@ -128,4 +130,3 @@ std::vector<DnsAnswer> DNSParser::extractAnswers(const uint8_t* payload, size_t 
 }
 
 } // namespace DPI
-

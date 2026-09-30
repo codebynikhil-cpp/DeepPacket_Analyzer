@@ -5,6 +5,11 @@
 #include <iostream>
 #include <iomanip>
 #include <fstream>
+#include <ctime>
+#include <cstdio>
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 
 
@@ -13,9 +18,11 @@ namespace DPI {
 StatsCollector::StatsCollector() {
     start_time_ = std::chrono::steady_clock::now();
     last_print_time_ = start_time_;
+    session_id_ = std::to_string(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch()).count());
 }
 
-void StatsCollector::update(const PacketAnalyzer::RawPacket& raw, const PacketAnalyzer::ParsedPacket& parsed) {
+void StatsCollector::update(const PacketAnalyzer::RawPacket& raw, const PacketAnalyzer::ParsedPacket& parsed,
+                            const std::optional<AppClassification>& classification, PacketAction action) {
     std::lock_guard<std::mutex> lock(mutex_);
 
     // If incl_len == 0 (e.g. read timeout dummy packet), skip counter increments
@@ -23,6 +30,7 @@ void StatsCollector::update(const PacketAnalyzer::RawPacket& raw, const PacketAn
 
     total_packets_++;
     interval_packets_++;
+    analytics_.update(raw, parsed, classification, action, total_packets_);
     total_bytes_ += raw.header.orig_len > 0 ? raw.header.orig_len : raw.header.incl_len;
     
     if (parsed.has_ip) {
@@ -30,11 +38,13 @@ void StatsCollector::update(const PacketAnalyzer::RawPacket& raw, const PacketAn
             tcp_packets_++;
         } else if (parsed.protocol == 17 || parsed.has_udp) { // UDP
             udp_packets_++;
-        } else if (parsed.protocol == 1) { // ICMP
+        } else if (parsed.protocol == 1 || parsed.protocol == 58) { // ICMP
             icmp_packets_++;
         } else {
             other_packets_++;
         }
+    } else if (parsed.ether_type == PacketAnalyzer::EtherType::ARP) {
+        arp_packets_++;
     } else {
         other_packets_++;
     }
@@ -82,11 +92,28 @@ void StatsCollector::exportJson(const std::string& filename,
                                 size_t connections, 
                                 size_t dropped,
                                 uint64_t capture_drops,
-                                uint64_t processing_drops) {
-    std::ofstream out(filename);
+                                uint64_t processing_drops,
+                                bool final_snapshot) {
+    const std::string temp_filename = filename + ".tmp";
+    std::ofstream out(temp_filename, std::ios::trunc);
     if (!out.is_open()) return;
-    
+
+    const auto clock_now = std::chrono::system_clock::now();
+    const std::time_t now = std::chrono::system_clock::to_time_t(clock_now);
+    const auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(clock_now.time_since_epoch()).count() % 1000;
+    std::tm utc{};
+#ifdef _WIN32
+    gmtime_s(&utc, &now);
+#else
+    gmtime_r(&now, &utc);
+#endif
     out << "{\n";
+    out << "  \"schema_version\": 1,\n";
+    out << "  \"generated_at\": \"" << std::put_time(&utc, "%Y-%m-%dT%H:%M:%S") << "." << std::setw(3) << std::setfill('0') << millis << "Z" << "\",\n";
+    out << "  \"engine_state\": \"" << (final_snapshot ? "stopped" : "running") << "\",\n";
+    out << "  \"session_id\": \"" << session_id_ << "\",\n";
+    out << "  \"parse_errors\": " << parse_errors_ << ",\n";
+    out << "  \"analysis\": " << analytics_.toJson() << ",\n";
     out << "  \"packets\": " << total_packets_ << ",\n";
     out << "  \"bytes\": " << total_bytes_ << ",\n";
     out << "  \"connections\": " << connections << ",\n";
@@ -103,7 +130,7 @@ void StatsCollector::exportJson(const std::string& filename,
 
     out << "  \"source_name\": \"" << escapeJson(source_name_) << "\",\n";
     out << "  \"protection_requested\": " << (protection_requested_ ? "true" : "false") << ",\n";
-    out << "  \"protocols\": { \"TCP\": " << tcp_packets_ << ", \"UDP\": " << udp_packets_ << ", \"ICMP\": " << icmp_packets_ << " },\n";
+    out << "  \"protocols\": { \"TCP\": " << tcp_packets_ << ", \"UDP\": " << udp_packets_ << ", \"ICMP\": " << icmp_packets_ << ", \"ARP\": " << arp_packets_ << ", \"Other\": " << other_packets_ << " },\n";
     
     // Applications breakdown (e.g. YouTube, GitHub, LeetCode, Unstop)
     out << "  \"applications\": {";
@@ -151,6 +178,10 @@ void StatsCollector::exportJson(const std::string& filename,
     for (size_t i = 0; i < flows.size(); ++i) {
         const auto& f = flows[i];
         out << "    { "
+            << "\"packets\": " << f.packets << ", "
+            << "\"bytes\": " << f.bytes << ", "
+            << "\"first_seen_us\": " << f.first_seen_us << ", "
+            << "\"last_seen_us\": " << f.last_seen_us << ", "
             << "\"time\": \"" << escapeJson(f.timestamp) << "\", "
             << "\"src_ip\": \"" << escapeJson(f.src_ip) << "\", "
             << "\"src_port\": " << f.src_port << ", "
@@ -160,6 +191,8 @@ void StatsCollector::exportJson(const std::string& filename,
             << "\"domain\": \"" << escapeJson(f.domain) << "\", "
             << "\"application\": \"" << escapeJson(f.application) << "\", "
             << "\"method\": \"" << escapeJson(f.method) << "\", "
+            << "\"confidence\": \"" << escapeJson(f.confidence) << "\", "
+            << "\"policy_reason\": \"" << escapeJson(f.policy_reason) << "\", "
             << "\"policy\": \"" << escapeJson(f.policy) << "\", "
             << "\"enforcement\": \"" << escapeJson(f.enforcement) << "\""
             << " }";
@@ -174,8 +207,22 @@ void StatsCollector::exportJson(const std::string& filename,
         out << "  \"wfp\": { \"active\": false, \"status\": \"OFF (Monitor Mode)\", \"ip_filters\": 0, \"port_filters\": 0, \"domain_rules\": 0, \"total_filters\": 0 }\n";
     }
     out << "}\n";
-
     out.close();
+    if (!out) {
+        std::remove(temp_filename.c_str());
+        return;
+    }
+#ifdef _WIN32
+    if (!MoveFileExA(temp_filename.c_str(), filename.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+        std::cerr << "[Telemetry] Could not replace " << filename << "\n";
+        std::remove(temp_filename.c_str());
+    }
+#else
+    if (std::rename(temp_filename.c_str(), filename.c_str()) != 0) {
+        std::cerr << "[Telemetry] Could not replace " << filename << "\n";
+        std::remove(temp_filename.c_str());
+    }
+#endif
 }
 
 void StatsCollector::checkAndPrint(const std::vector<std::string>& dns, 
@@ -196,8 +243,8 @@ void StatsCollector::checkAndPrint(const std::vector<std::string>& dns,
     if (elapsed >= static_cast<int64_t>(interval_ms)) {
         double pps = (interval_packets_ * 1000.0) / (elapsed > 0 ? elapsed : 1);
         
-        if (pps > 2000.0) {
-            std::string msg = "High traffic surge detected";
+        if (mode_ == "live" && pps > 2000.0) {
+            std::string msg = "High processing rate (>2000 packets/s)";
             if (local_alerts_.size() < 10) {
                 local_alerts_.push_back(msg);
             }
@@ -206,7 +253,7 @@ void StatsCollector::checkAndPrint(const std::vector<std::string>& dns,
         std::vector<std::string> combined_alerts = tracker_alerts;
         combined_alerts.insert(combined_alerts.end(), local_alerts_.begin(), local_alerts_.end());
         
-        exportJson("output.json", dns, http, combined_alerts, apps, domains, flows, connections, dropped, capture_drops, processing_drops);
+        exportJson("output.json", dns, http, combined_alerts, apps, domains, flows, connections, dropped, capture_drops, processing_drops, false);
         
         last_print_time_ = now;
         interval_packets_ = 0;
@@ -235,9 +282,8 @@ void StatsCollector::printFinal(const std::vector<std::string>& dns,
     std::vector<std::string> combined_alerts = tracker_alerts;
     combined_alerts.insert(combined_alerts.end(), local_alerts_.begin(), local_alerts_.end());
     
-    exportJson("output.json", dns, http, combined_alerts, apps, domains, flows, connections, dropped, capture_drops, processing_drops);
+    exportJson("output.json", dns, http, combined_alerts, apps, domains, flows, connections, dropped, capture_drops, processing_drops, true);
     printMetrics(avg_pps);
 }
 
 } // namespace DPI
-

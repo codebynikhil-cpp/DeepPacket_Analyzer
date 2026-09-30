@@ -1,26 +1,41 @@
 {
-  "name": "deeppacket-analyzer-real-time-packet-capture-and-deep-traffic-analysis-main",
+  "name": "deeppacket-analyzer",
   "version": "1.0.0",
-  "description": "This document explains **everything** about this project - from basic networking concepts to the complete code architecture. After reading this, you should understand exactly how packets flow through the system without needing to read the code.",
+  "description": "Local network traffic analysis with a C++17 capture engine and an interactive packet inspection workspace.",
   "main": "server.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node server.js"
+    "test": "node --test tests/*.test.js",
+    "benchmark": "node scripts/benchmark.js",
+    "smoke:live": "node scripts/live-smoke.js",
+    "start": "node server.js",
+    "test:ui": "playwright test",
+    "demo": "node scripts/demo.js",
+    "benchmark:mixed": "node scripts/benchmark-mixed.js"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/codebynikhil-cpp/DeepPacket-Analyzer-Real-time-packet-capture-and-deep-traffic-analysis.git"
+    "url": "git+https://github.com/codebynikhil-cpp/DeepPacket-Analyzer---Deep-Packet-Inspection-Traffic-Classification-Engine.git"
   },
-  "keywords": [],
+  "keywords": [
+    "packet-capture",
+    "deep-packet-inspection",
+    "traffic-analysis",
+    "network-security",
+    "npcap",
+    "pcap"
+  ],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
   "bugs": {
-    "url": "https://github.com/codebynikhil-cpp/DeepPacket-Analyzer-Real-time-packet-capture-and-deep-traffic-analysis/issues"
+    "url": "https://github.com/codebynikhil-cpp/DeepPacket-Analyzer---Deep-Packet-Inspection-Traffic-Classification-Engine/issues"
   },
-  "homepage": "https://github.com/codebynikhil-cpp/DeepPacket-Analyzer-Real-time-packet-capture-and-deep-traffic-analysis#readme",
+  "homepage": "https://github.com/codebynikhil-cpp/DeepPacket-Analyzer---Deep-Packet-Inspection-Traffic-Classification-Engine#readme",
   "dependencies": {
-    "cors": "^2.8.6",
+    "chart.js": "4.5.1",
     "express": "^5.2.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0"
   }
 }

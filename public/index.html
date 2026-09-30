@@ -1,264 +1,89 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DeepPacket Analyzer | Dashboard</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <link rel="stylesheet" href="style.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="dark">
+  <meta name="description" content="DeepPacket Analyzer network traffic workspace. Inspect packets, investigate connections, and understand classification evidence.">
+  <title>DeepPacket Analyzer &middot; Network intelligence</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+  <script src="/vendor/chart.js" defer></script>
+  <script type="module" src="app.js"></script>
 </head>
 <body>
-<div class="layout">
-
-    <!-- ── Sidebar ──────────────────────────────────────── -->
-    <aside class="sidebar">
-        <div class="sidebar-brand">
-            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-            <span>DeepPacket</span>
+<a class="skip-link" href="#main">Skip to workspace</a>
+<div class="app-shell">
+  <aside class="sidebar" aria-label="Workspace navigation">
+    <a class="brand" href="#overview"><span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M16 2 29 9.5v13L16 30 3 22.5v-13Z"/><path d="m9 12 7-4 7 4v8l-7 4-7-4Zm0 0 14 8M23 12 9 20M16 8v16"/></svg></span><span>DeepPacket<small>NETWORK ANALYZER</small></span><span class="version">01</span></a>
+    <div class="workspace-tag"><span class="workspace-icon">DP</span><div>Local workspace<small>Packet analysis engine</small></div><span class="workspace-dot" title="Local application"></span></div>
+    <p class="nav-caption">ANALYZE</p>
+    <nav id="primaryNav">
+      <a class="nav-link active" href="#overview" aria-current="page"><span data-icon="overview"></span>Overview</a>
+      <a class="nav-link" href="#packets"><span data-icon="packets"></span>Packet explorer<span class="nav-key">K</span></a>
+      <a class="nav-link" href="#flows"><span data-icon="network"></span>Connections</a>
+      <a class="nav-link" href="#apps"><span data-icon="layers"></span>Applications</a>
+      <a class="nav-link" href="#domains"><span data-icon="globe"></span>Domains</a>
+      <a class="nav-link" href="#traffic"><span data-icon="terminal"></span>DNS &amp; HTTP</a>
+      <p class="nav-caption">MANAGE</p>
+      <a class="nav-link" href="#rules"><span data-icon="shield"></span>Firewall rules</a>
+      <a class="nav-link" href="#health"><span data-icon="pulse"></span>Website health</a>
+      <a class="nav-link" href="#alerts"><span data-icon="bell"></span>Alerts<span id="alertNavBadge" class="nav-count" hidden></span></a>
+      <a class="nav-link" href="#diagnostics"><span data-icon="settings"></span>Diagnostics</a>
+    </nav>
+    <div class="sidebar-bottom"><div class="engine-label"><span class="status-dot" id="sidebarDot"></span><span id="statusText">Connecting to engine</span></div><p>Inspect. Understand. Investigate.</p><span class="local-note">LOCAL INSTANCE <span>&mdash;</span> C++17</span></div>
+  </aside>
+  <div class="workspace">
+    <header class="topbar">
+      <div class="breadcrumb"><span data-icon="layers"></span><span>Workspace</span><span class="slash">/</span><strong id="breadcrumbCurrent">Overview</strong></div>
+      <div class="topbar-actions"><span class="api-indicator" id="apiStatus">Connecting</span><button class="button ghost" id="pauseUpdates" type="button" aria-pressed="false"><span data-icon="pause"></span><span>Pause updates</span></button><button class="button" id="exportSnapshot" type="button"><span data-icon="download"></span>Export snapshot</button></div>
+    </header>
+    <main id="main" tabindex="-1">
+      <div class="page-heading"><div><p class="eyebrow">TRAFFIC WORKSPACE</p><h1 id="pageTitle">Network overview<span class="title-dot">.</span></h1><p id="pageDescription">A clear view of every observed connection.</p></div><div class="source-card"><span class="status-tag" id="modeBadge">CONNECTING</span><div id="sourceName" class="source-name">Waiting for a capture</div><div class="source-meta"><span data-icon="clock"></span><span id="lastUpdate">No snapshot received</span></div></div></div>
+      <div class="status-banner" id="statusBanner" role="status" hidden></div>
+      <section class="view" id="overview" aria-label="Network overview">
+        <div class="metric-grid">
+          <article class="metric accent-blue"><div class="metric-label">Packets processed<span data-icon="packets"></span></div><strong id="kpiPackets">&mdash;</strong><span class="metric-note">Successfully parsed frames</span></article>
+          <article class="metric"><div class="metric-label">Packet rate<span data-icon="pulse"></span></div><strong id="kpiRate">&mdash;</strong><span class="metric-note" id="kpiRateSub">Awaiting live samples</span></article>
+          <article class="metric"><div class="metric-label">Traffic volume<span data-icon="transfer"></span></div><strong id="kpiBytes">&mdash;</strong><span class="metric-note">Observed frame bytes</span></article>
+          <article class="metric"><div class="metric-label">Tracked flows<span data-icon="network"></span></div><strong id="kpiConns">&mdash;</strong><span class="metric-note">Retained bidirectional flows</span></article>
+          <article class="metric"><div class="metric-label">IP endpoints<span data-icon="globe"></span></div><strong id="kpiEndpoints">&mdash;</strong><span class="metric-note" id="endpointScope">Unique observed addresses</span></article>
+          <article class="metric"><div class="metric-label">Rule matches<span data-icon="shield"></span></div><strong id="kpiDropped">&mdash;</strong><span class="metric-note">Packets matching saved policy</span></article>
         </div>
-        <nav>
-            <a class="nav-link active" href="#overview"   onclick="setNav(this)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg> Overview</a>
-            <a class="nav-link"        href="#protocols"  onclick="setNav(this)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg> Protocols</a>
-            <a class="nav-link"        href="#apps"       onclick="setNav(this)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg> Applications</a>
-            <a class="nav-link"        href="#domains"    onclick="setNav(this)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/></svg> Domains</a>
-            <a class="nav-link"        href="#health"     onclick="setNav(this)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg> Health Monitor</a>
-            <a class="nav-link"        href="#flows"      onclick="setNav(this)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg> Recent Flows</a>
-            <a class="nav-link"        href="#traffic"    onclick="setNav(this)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg> DNS / HTTP</a>
-
-            <a class="nav-link"        href="#rules"      onclick="setNav(this)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg> Firewall Rules</a>
-            <a class="nav-link"        href="#alerts"     onclick="setNav(this)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> Alerts <span id="alertNavBadge" class="nav-badge" style="display:none">0</span></a>
-        </nav>
-        <div class="sidebar-status">
-            <span class="dot-pulse"></span>
-            <span id="statusText">Connecting…</span>
+        <div class="diagnostic-strip"><span><i class="small-dot"></i>Capture drops <b id="kpiCapDrops">&mdash;</b></span><span>Queue drops <b id="kpiProcDrops">&mdash;</b></span><span>Parse errors <b id="parseErrors">&mdash;</b></span><span>Capture span <b id="captureDuration">&mdash;</b></span><span class="push-right">WFP <b id="kpiWfpStatus">Unknown</b></span></div>
+        <div class="overview-charts" id="protocols">
+          <article class="panel timeline-panel"><div class="panel-head"><div><h2><span class="heading-dot blue"></span>Traffic timeline</h2><p>Observed traffic &middot; 1-second capture intervals</p></div><div class="chart-controls"><select id="chartMetric" aria-label="Timeline metric"><option value="packets">Packets / s</option><option value="bytes">Bytes / s</option></select><select id="chartRange" aria-label="Timeline range"><option value="60">Last 60s</option><option value="300" selected>Last 5m</option></select></div></div><div class="chart-summary"><strong id="timelineTotal">&mdash;</strong><span id="timelineSubtitle">No measured timeline yet</span><span class="chart-legend"><i></i>Observed traffic</span></div><div class="timeline-wrap"><canvas id="throughputChart" role="img" aria-label="Traffic per second over capture time"></canvas><div class="chart-empty" id="throughputEmpty">A timeline will appear after the engine processes a capture.</div></div><div class="panel-foot"><span id="timelineScope">Up to 300 observed seconds &middot; latest interval may be partial</span><span>CAPTURE TIME</span></div></article>
+          <article class="panel protocol-panel"><div class="panel-head"><div><h2>Protocol mix</h2><p>Transport &amp; network protocols</p></div><span data-icon="layers"></span></div><div class="donut-container"><canvas id="protoChart" role="img" aria-label="Protocol distribution"></canvas><div class="donut-center"><strong id="protocolTotal">&mdash;</strong><span>PACKETS</span></div></div><div id="protoStats" class="protocol-legend"><p class="empty-inline">No protocol data yet.</p></div><div class="panel-foot">Select a protocol to inspect its packets<span data-icon="arrow"></span></div></article>
         </div>
-    </aside>
-
-    <!-- ── Main ─────────────────────────────────────────── -->
-    <main class="main">
-
-        <!-- Topbar -->
-        <header class="topbar">
-            <div>
-                <h1 class="page-title">Network Traffic Dashboard</h1>
-                <p class="page-sub">Real-time deep packet inspection · C++ Engine</p>
-            </div>
-            <div class="topbar-right">
-                <div class="chip" id="modeBadge">Mode: <span id="modeText" style="font-weight:700">Offline</span></div>
-                <div class="chip">Last update: <span id="lastUpdate">—</span></div>
-            </div>
-        </header>
-
-        <!-- ── Overview KPIs ─────────────────────────── -->
-        <section id="overview" class="section">
-            <div class="kpi-grid">
-                <div class="kpi">
-                    <div class="kpi-label">Total Packets</div>
-                    <div class="kpi-val" id="kpiPackets">—</div>
-                    <div class="kpi-sub" id="kpiPacketsSub">from PCAP capture</div>
-                </div>
-                <div class="kpi">
-                    <div class="kpi-label">Traffic Volume</div>
-                    <div class="kpi-val" id="kpiBytes">—</div>
-                    <div class="kpi-sub" id="kpiBytesSub">bytes observed</div>
-                </div>
-                <div class="kpi">
-                    <div class="kpi-label">Total Connections</div>
-                    <div class="kpi-val" id="kpiConns">—</div>
-                    <div class="kpi-sub">unique flows tracked</div>
-                </div>
-                <div class="kpi">
-                    <div class="kpi-label">Packets Dropped</div>
-                    <div class="kpi-val" id="kpiDropped">—</div>
-                    <div class="kpi-sub">by firewall rules</div>
-                </div>
-                <div class="kpi">
-                    <div class="kpi-label">Capture Drops</div>
-                    <div class="kpi-val" id="kpiCapDrops">0</div>
-                    <div class="kpi-sub">kernel / pcap drops</div>
-                </div>
-                <div class="kpi">
-                    <div class="kpi-label">Processing Drops</div>
-                    <div class="kpi-val" id="kpiProcDrops">0</div>
-                    <div class="kpi-sub">queue full drops</div>
-                </div>
-                <div class="kpi" id="kpiAlertCard">
-                    <div class="kpi-label">Security Alerts</div>
-                    <div class="kpi-val green" id="kpiAlerts">0</div>
-                    <div class="kpi-sub" id="kpiAlertSub">✓ System clean</div>
-                </div>
-                <div class="kpi" id="kpiWfpCard">
-                    <div class="kpi-label">WFP Enforcement</div>
-                    <div class="kpi-val green" id="kpiWfpStatus">ACTIVE</div>
-                    <div class="kpi-sub" id="kpiWfpSub">Windows Filtering Platform</div>
-                </div>
-            </div>
-        </section>
-
-
-        <!-- ── Protocol Distribution ─────────────────── -->
-        <section id="protocols" class="section">
-            <div class="sh"><h2>Protocol Distribution</h2><span class="badge">IPv4 / IPv6 / ICMP</span></div>
-            <div class="chart-row">
-                <!-- Donut -->
-                <div class="card proto-card">
-                    <div class="card-inner-title">Protocol Breakdown</div>
-                    <div class="donut-wrap">
-                        <canvas id="protoChart" width="220" height="220"></canvas>
-                    </div>
-                    <div class="proto-stats" id="protoStats"></div>
-                </div>
-                <!-- Line Chart -->
-                <div class="card line-card">
-                    <div class="card-inner-title">Live Throughput <span class="chart-sub">packets / sec over time</span></div>
-                    <div class="line-chart-wrap">
-                        <canvas id="throughputChart"></canvas>
-                    </div>
-                </div>
-            </div>
-        </section>
-
-        <!-- ── Application Breakdown ──────────────────── -->
-        <section id="apps" class="section">
-            <div class="sh"><h2>Application Classification</h2><span class="badge" id="appBadge">—</span></div>
-            <div class="card">
-                <table class="tbl">
-                    <thead><tr><th>#</th><th>Application</th><th>Connections</th><th>Share</th><th style="width:35%">Distribution</th></tr></thead>
-                    <tbody id="appsTbody"></tbody>
-                </table>
-            </div>
-        </section>
-
-        <!-- ── Domain Breakdown ───────────────────────── -->
-        <section id="domains" class="section">
-            <div class="sh"><h2>Observed Domains</h2><span class="badge" id="domainBadge">—</span></div>
-            <div class="card">
-                <table class="tbl">
-                    <thead><tr><th>#</th><th>Domain (FQDN)</th><th>Flows</th><th>Share</th><th style="width:35%">Activity</th></tr></thead>
-                    <tbody id="domainsTbody"></tbody>
-                </table>
-            </div>
-        </section>
-
-        <!-- ── Critical Websites Health Monitor ───────── -->
-        <section id="health" class="section">
-            <div class="sh"><h2>Critical Website Health Monitor</h2><span class="badge" id="healthBadge">Probe Active</span></div>
-            <div class="card" style="padding:16px">
-                <div class="kpi-grid" id="healthGrid" style="grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));">
-                    <!-- Dynamic health cards will be rendered here -->
-                </div>
-            </div>
-        </section>
-
-        <!-- ── Recent Traffic Flows Table ─────────────── -->
-        <section id="flows" class="section">
-            <div class="sh"><h2>Recent Connection Flows</h2><span class="badge" id="flowsBadge">Live Stream</span></div>
-            <div class="card" style="max-height: 420px; overflow-y: auto;">
-                <table class="tbl" id="flowsTable">
-                    <thead>
-                        <tr>
-                            <th>Time</th>
-                            <th>Source</th>
-                            <th>Destination</th>
-                            <th>Proto</th>
-                            <th>Domain</th>
-                            <th>Application</th>
-                            <th>Method</th>
-                            <th>Policy</th>
-                            <th>Enforcement</th>
-                        </tr>
-                    </thead>
-                    <tbody id="flowsTbody">
-                        <tr><td colspan="9" class="log-empty">Waiting for connection flows...</td></tr>
-                    </tbody>
-                </table>
-            </div>
-        </section>
-
-        <!-- ── DNS & HTTP ─────────────────────────────── -->
-        <section id="traffic" class="section">
-            <div class="sh"><h2>Captured Traffic</h2><span class="badge">DNS &amp; HTTP</span></div>
-            <div class="two-col">
-                <div class="card log-card">
-                    <div class="log-hd"><span>DNS Queries</span><span class="pill" id="dnsPill">0</span></div>
-                    <ul class="log-ul" id="dnsList"></ul>
-                </div>
-                <div class="card log-card">
-                    <div class="log-hd"><span>HTTP Requests</span><span class="pill" id="httpPill">0</span></div>
-                    <ul class="log-ul" id="httpList"></ul>
-                </div>
-            </div>
-        </section>
-
-
-        <!-- ── Firewall Rules ─────────────────────────── -->
-        <section id="rules" class="section">
-            <div class="sh"><h2>Firewall Rules</h2><span class="badge" id="rulesBadge">0 active rules</span></div>
-
-            <!-- Add Rule Form -->
-            <div class="card rule-form-card">
-                <h3 class="rule-form-title">Add New Rule</h3>
-                <p class="rule-form-desc">Rules are hot-reloaded dynamically by the C++ engine. When WFP enforcement is active, rules install Windows Filtering Platform filters. <em>Note: Already-established connections may require closing browser tabs or reconnecting before the block takes full effect.</em></p>
-
-                <div class="rule-form">
-                    <select id="ruleType" class="rule-select">
-                        <option value="domain">Domain</option>
-                        <option value="ip">IP Address</option>
-                        <option value="app">Application</option>
-                        <option value="port">Port</option>
-                    </select>
-                    <input id="ruleValue" class="rule-input" type="text" placeholder="e.g. *.facebook.com" />
-                    <button class="btn-add" onclick="addRule()">Block</button>
-                </div>
-                <div class="rule-hints">
-                    <span><code>*.facebook.com</code> — wildcard domain</span>
-                    <span><code>192.168.1.5</code> — source IP</span>
-                    <span><code>TikTok</code> — app name</span>
-                    <span><code>4444</code> — suspicious port</span>
-                </div>
-            </div>
-
-            <!-- Active Rules Tables -->
-            <div class="two-col" style="margin-top:16px">
-                <div class="card rule-list-card">
-                    <div class="log-hd"><span>🌐 Blocked Domains</span><span class="pill" id="domainPill">0</span></div>
-                    <ul class="rule-ul" id="domainRules"></ul>
-                </div>
-                <div class="card rule-list-card">
-                    <div class="log-hd"><span>🔗 Blocked IPs</span><span class="pill" id="ipPill">0</span></div>
-                    <ul class="rule-ul" id="ipRules"></ul>
-                </div>
-            </div>
-            <div class="two-col" style="margin-top:16px">
-                <div class="card rule-list-card">
-                    <div class="log-hd"><span>📦 Blocked Apps</span><span class="pill" id="appPill">0</span></div>
-                    <ul class="rule-ul" id="appRules"></ul>
-                </div>
-                <div class="card rule-list-card">
-                    <div class="log-hd"><span>🔌 Blocked Ports</span><span class="pill" id="portPill">0</span></div>
-                    <ul class="rule-ul" id="portRules"></ul>
-                </div>
-            </div>
-        </section>
-
-        <!-- ── Alerts ─────────────────────────────────── -->
-        <section id="alerts" class="section" style="padding-bottom:48px">
-            <div class="sh"><h2>Security Alerts</h2><span class="badge" id="alertsBadge">0 events</span></div>
-            <div class="card" id="alertsCard">
-                <div class="empty-state" id="alertsEmpty">
-                    <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="1.5"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-                    <p>No alerts — system is clean</p>
-                </div>
-                <table class="tbl" id="alertsTbl" style="display:none">
-                    <thead><tr><th>Severity</th><th>Description</th><th>Status</th></tr></thead>
-                    <tbody id="alertsTbody"></tbody>
-                </table>
-            </div>
-        </section>
-
+        <div class="network-row">
+          <article class="panel network-panel"><div class="panel-head"><div><h2>Observed connections<span class="subtle-badge" id="networkCount">0 links</span></h2><p>Communication between captured IP endpoints</p></div><div class="graph-tools"><button type="button" id="zoomIn" class="icon-button" aria-label="Zoom in network">+</button><button type="button" id="zoomOut" class="icon-button" aria-label="Zoom out network">&minus;</button><button type="button" id="resetGraph" class="icon-button" aria-label="Reset network view"><span data-icon="expand"></span></button></div></div><div class="network-canvas"><svg id="networkGraph" viewBox="0 0 720 320" aria-label="Observed communication graph"><g id="graphViewport"></g></svg><p id="networkEmpty" class="chart-empty">Connections will appear as IP traffic is observed.</p><div class="network-hint">Drag to pan &middot; scroll to zoom &middot; select to investigate</div></div><div class="panel-foot"><span><i class="legend-dot tcp"></i>TCP <i class="legend-dot udp"></i>UDP <i class="legend-dot other"></i>Other</span><span>RECENT FLOWS &middot; UP TO 18 HOSTS</span></div></article>
+          <article class="panel talker-panel"><div class="panel-head"><div><h2>Top talkers</h2><p>Endpoints ranked by observed bytes</p></div><span data-icon="transfer"></span></div><div id="topTalkers" class="talker-list"><p class="empty-inline">Endpoint statistics appear after a new capture.</p></div><div class="panel-foot">Select an IP to filter packets<span data-icon="arrow"></span></div></article>
+        </div>
+        <div class="two-col analytics-row">
+          <article class="panel"><div class="panel-head"><div><h2>Packet sizes</h2><p>Distribution of observed frame lengths</p></div><span class="subtle-badge">BYTES</span></div><div class="small-chart"><canvas id="sizeChart" role="img" aria-label="Packet size distribution"></canvas><p class="chart-empty" id="sizeEmpty">No measured packet lengths yet.</p></div></article>
+          <article class="panel"><div class="panel-head"><div><h2>Port activity</h2><p>Source and destination observations</p></div><span class="subtle-badge">TOP 6</span></div><div id="portActivity" class="port-list"><p class="empty-inline">No transport port statistics yet.</p></div></article>
+        </div>
+      </section>
+      <section class="view" id="packets" aria-label="Packet explorer" hidden>
+        <div class="panel explorer-panel"><div class="panel-head"><div><h2>Captured packets<span class="subtle-badge" id="packetCount">0 packets</span></h2><p id="packetScope">Latest 300 parsed packets. Full capture remains in your source PCAP.</p></div><button type="button" class="button" id="exportPackets"><span data-icon="download"></span>Export filtered CSV</button></div>
+        <div class="filter-bar"><label class="search-field"><span data-icon="search"></span><input id="packetSearch" type="search" placeholder="Search IP, domain, application, or info&hellip;" aria-label="Search packets" autocomplete="off"><kbd>Ctrl K</kbd></label><label>Protocol<select id="packetProtocol"><option value="all">All protocols</option><option>TCP</option><option>UDP</option><option>ICMP</option><option>ICMPv6</option><option>ARP</option><option>Other</option></select></label><label>IP address<input id="packetIp" placeholder="Any endpoint" type="search" autocomplete="off"></label><label>Port<input id="packetPort" placeholder="Any" type="number" min="1" max="65535"></label><label>Time<select id="packetTime"><option value="all">Retained window</option><option value="10">Last 10 seconds</option><option value="60">Last 60 seconds</option></select></label><button type="button" class="button ghost" id="clearPacketFilters">Clear filters</button></div>
+        <div id="flowFilterBanner" class="filter-notice" hidden></div>
+        <div class="table-scroll"><table class="data-table packet-table" id="packetTable"><thead><tr><th aria-sort="descending"><button data-sort="id" type="button">No. <span>&mdash;</span></button></th><th><button data-sort="timestamp_us" type="button">Time</button></th><th><button data-sort="src_ip" type="button">Source</button></th><th><button data-sort="dst_ip" type="button">Destination</button></th><th><button data-sort="protocol" type="button">Protocol</button></th><th class="number"><button data-sort="length" type="button">Length</button></th><th>Information</th></tr></thead><tbody id="packetsTbody"><tr><td colspan="7" class="table-empty">No packet data available yet. Run the engine to begin.</td></tr></tbody></table></div>
+        <div class="table-footer"><span id="packetPageInfo">0 packets</span><div class="pagination"><label>Rows<select id="packetPageSize" aria-label="Packets per page"><option>25</option><option>50</option><option>100</option></select></label><button type="button" class="icon-button" id="packetPrev" aria-label="Previous packet page">&larr;</button><span id="packetPage">1 / 1</span><button type="button" class="icon-button" id="packetNext" aria-label="Next packet page">&rarr;</button></div></div></div>
+      </section>
+      <section class="view" id="flows" aria-label="Connection flows" hidden><div class="panel"><div class="panel-head"><div><h2>Connection flows<span class="subtle-badge" id="flowsBadge">0 flows</span></h2><p>Last 100 recorded flows &middot; select a connection for evidence and related packets</p></div></div><div class="filter-bar"><label class="search-field"><span data-icon="search"></span><input id="flowSearch" type="search" aria-label="Search flows" placeholder="Search endpoints, domains, or applications&hellip;"></label><label>Protocol<select id="flowProtocol"><option value="all">All protocols</option><option>TCP</option><option>UDP</option><option>ICMP</option><option>ICMPv6</option></select></label><label>Decision<select id="flowPolicy"><option value="all">All decisions</option><option value="DROP">Rule matched</option><option value="FORWARD">No rule match</option></select></label></div><div class="table-scroll"><table class="data-table"><thead><tr><th>Source &rarr; Destination</th><th>Protocol</th><th>Domain / Application</th><th>Evidence</th><th class="number">Packets</th><th class="number">Bytes</th><th>Decision</th><th></th></tr></thead><tbody id="flowsTbody"></tbody></table></div><div class="table-footer"><span id="flowPageInfo">0 flows</span><div class="pagination"><button class="icon-button" id="flowPrev" aria-label="Previous flow page">&larr;</button><span id="flowPage">1 / 1</span><button class="icon-button" id="flowNext" aria-label="Next flow page">&rarr;</button></div></div></div></section>
+      <section class="view" id="apps" aria-label="Applications" hidden><div class="panel"><div class="panel-head"><div><h2>Application classification<span id="appBadge" class="subtle-badge"></span></h2><p>Every visible hostname is retained; known services receive a friendly label. QUIC, encrypted DNS, and ECH can hide names.</p></div></div><div class="table-scroll"><table class="data-table"><thead><tr><th>#</th><th>Application or hostname</th><th class="number">Evidence</th><th>Share</th><th>Distribution</th></tr></thead><tbody id="appsTbody"></tbody></table></div></div></section>
+      <section class="view" id="domains" aria-label="Domains" hidden><div class="panel"><div class="panel-head"><div><h2>Observed domains<span id="domainBadge" class="subtle-badge"></span></h2><p>Names observed through DNS, HTTP Host, TLS SNI, or DNS correlation</p></div></div><div class="table-scroll"><table class="data-table"><thead><tr><th>#</th><th>Domain</th><th class="number">Evidence</th><th>Share</th><th>Distribution</th></tr></thead><tbody id="domainsTbody"></tbody></table></div></div></section>
+      <section class="view" id="traffic" aria-label="DNS and HTTP" hidden><div class="two-col"><article class="panel"><div class="panel-head"><div><h2>DNS names<span class="subtle-badge" id="dnsPill">0</span></h2><p>Recent queried and answered names</p></div></div><ul class="event-list" id="dnsList"></ul></article><article class="panel"><div class="panel-head"><div><h2>HTTP requests<span class="subtle-badge" id="httpPill">0</span></h2><p>Visible request method, host, and path</p></div></div><ul class="event-list" id="httpList"></ul></article></div></section>
+      <section class="view" id="rules" aria-label="Firewall rules" hidden><div class="rules-summary"><span id="rulesBadge" class="status-tag">Loading rules</span><span id="rulesState">Checking engine state&hellip;</span></div><div class="panel rule-form-panel"><div class="panel-head"><div><h2>Create a block rule</h2><p>Save policy and track when the engine loads it.</p></div><span data-icon="shield"></span></div><form id="ruleForm"><div class="rule-fields"><label>Rule type<select id="ruleType"><option value="domain">Domain</option><option value="ip">IPv4 address</option><option value="app">Application</option><option value="port">Port</option></select></label><label class="grow">Value<input id="ruleValue" placeholder="e.g. *.example.com" required autocomplete="off"></label><label class="grow">Management token<input id="ruleToken" type="password" placeholder="Token from the server terminal" autocomplete="off" required></label><button class="button primary" id="saveRule" type="submit"><span data-icon="plus"></span>Save rule</button></div><p class="field-hint" id="ruleHint">*.example.com matches the domain and its subdomains. The token stays in this page only.</p><p class="form-message" id="ruleMessage" role="status"></p></form><p class="policy-note">Monitor mode records rule matches. Protect mode can install outbound IPv4 filters. An active WFP engine does not confirm an individual connection was denied.</p></div><div class="two-col rule-lists"><article class="panel"><div class="panel-head"><h2>Domains</h2><span class="subtle-badge" id="domainPill">0</span></div><ul class="rule-list" id="domainRules"></ul></article><article class="panel"><div class="panel-head"><h2>IP addresses</h2><span class="subtle-badge" id="ipPill">0</span></div><ul class="rule-list" id="ipRules"></ul></article><article class="panel"><div class="panel-head"><h2>Applications</h2><span class="subtle-badge" id="appPill">0</span></div><ul class="rule-list" id="appRules"></ul></article><article class="panel"><div class="panel-head"><h2>Ports</h2><span class="subtle-badge" id="portPill">0</span></div><ul class="rule-list" id="portRules"></ul></article></div></section>
+      <section class="view" id="health" aria-label="Website health" hidden><div class="section-toolbar"><p>HTTPS probes from this computer &middot; a policy match skips the probe</p><span class="subtle-badge" id="healthBadge">Waiting for probes</span></div><div class="health-grid" id="healthGrid"><div class="empty-state">Checking configured websites&hellip;</div></div></section>
+      <section class="view" id="alerts" aria-label="Alerts" hidden><div class="panel"><div class="panel-head"><div><h2>Observed events<span class="subtle-badge" id="alertsBadge">0 events</span></h2><p>Port and traffic-volume heuristics are signals to review, not confirmed threats.</p></div><span data-icon="bell"></span></div><ul class="event-list" id="alertsList"></ul></div></section>
+      <section class="view" id="diagnostics" aria-label="Diagnostics" hidden><div class="two-col"><article class="panel"><div class="panel-head"><h2>Capture &amp; engine</h2><span data-icon="settings"></span></div><dl class="diagnostics-list" id="engineDiagnostics"></dl></article><article class="panel"><div class="panel-head"><h2>Data scope</h2><span data-icon="layers"></span></div><div class="prose"><p>The packet explorer retains the latest <b>300 parsed frames</b>. Charts use engine aggregates, and the network view uses the last <b>100 recorded flows</b>.</p><p>The engine retains up to 10,000 flows and tracks up to 4,096 IP endpoints and protocol/port pairs. Truncation is reported when aggregate limits are reached.</p><p>Visible DNS, HTTP Host, and TLS SNI support classification. Encrypted payloads, QUIC SNI, and TCP stream reassembly are unavailable. IPv6 capture is supported; WFP enforcement covers outbound IPv4.</p><p>Start and stop capture from the engine terminal. <b>Pause updates</b> freezes this dashboard only. The CLI can export filtered PCAP; browser exports contain the displayed metadata.</p></div></article></div></section>
+      <footer class="workspace-footer"><span><span class="footer-mark">&#9672;</span> DeepPacket Analyzer<span class="footer-divider">/</span>Network intelligence workspace</span><span id="footerScope">Waiting for engine telemetry</span></footer>
     </main>
+  </div>
 </div>
-<script src="app.js"></script>
+<dialog id="inspector" class="inspector" aria-labelledby="inspectorTitle"><div class="inspector-heading"><div><p class="eyebrow" id="inspectorType">PACKET INSPECTION</p><h2 id="inspectorTitle">Packet details</h2></div><button class="icon-button" id="closeInspector" aria-label="Close inspector" type="button">&times;</button></div><div id="inspectorBody"></div><div class="inspector-footer"><span>Captured metadata &middot; selected snapshot</span><button class="button" id="relatedPackets" hidden type="button">View related packets &rarr;</button></div></dialog>
+<div id="toastRegion" role="status" aria-live="polite" class="toast-region"></div>
 </body>
 </html>

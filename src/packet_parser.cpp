@@ -3,6 +3,7 @@
 #include <sstream>
 #include <iomanip>
 #include <cstring>
+#include <algorithm>
 
 // Use portable byte order functions
 using PortableNet::netToHost16;
@@ -14,11 +15,22 @@ using PortableNet::netToHost32;
 
 namespace PacketAnalyzer {
 
+static uint16_t read16(const uint8_t* bytes) {
+    return (static_cast<uint16_t>(bytes[0]) << 8) | bytes[1];
+}
+
+static uint32_t read32(const uint8_t* bytes) {
+    return (static_cast<uint32_t>(bytes[0]) << 24) |
+           (static_cast<uint32_t>(bytes[1]) << 16) |
+           (static_cast<uint32_t>(bytes[2]) << 8) | bytes[3];
+}
+
 bool PacketParser::parse(const RawPacket& raw, ParsedPacket& parsed) {
     // Initialize parsed packet
     parsed = ParsedPacket();
     parsed.timestamp_sec = raw.header.ts_sec;
     parsed.timestamp_usec = raw.header.ts_usec;
+    parsed.frame_length = raw.header.orig_len ? raw.header.orig_len : raw.header.incl_len;
     
     const uint8_t* data = raw.data.data();
     size_t len = raw.data.size();
@@ -34,9 +46,12 @@ bool PacketParser::parse(const RawPacket& raw, ParsedPacket& parsed) {
         if (!parseIPv4(data, len, parsed, offset)) {
             return false;
         }
+        len = std::min(len, parsed.ip_end_offset);
         
         // Parse transport layer based on protocol
-        if (parsed.protocol == Protocol::TCP) {
+        if (parsed.is_noninitial_fragment) {
+            // A later fragment does not contain a transport header.
+        } else if (parsed.protocol == Protocol::TCP) {
             if (!parseTCP(data, len, parsed, offset)) {
                 return false;
             }
@@ -49,9 +64,12 @@ bool PacketParser::parse(const RawPacket& raw, ParsedPacket& parsed) {
         if (!parseIPv6(data, len, parsed, offset)) {
             return false;
         }
+        len = std::min(len, parsed.ip_end_offset);
         
         // Parse transport layer based on protocol
-        if (parsed.protocol == Protocol::TCP) {
+        if (parsed.is_noninitial_fragment) {
+            // A later fragment does not contain a transport header.
+        } else if (parsed.protocol == Protocol::TCP) {
             if (!parseTCP(data, len, parsed, offset)) {
                 return false;
             }
@@ -62,6 +80,7 @@ bool PacketParser::parse(const RawPacket& raw, ParsedPacket& parsed) {
         }
     }
     
+    if (parsed.has_ip) len = std::min(len, parsed.ip_end_offset);
     // Set payload information
     if (offset < len) {
         parsed.payload_length = len - offset;
@@ -90,7 +109,7 @@ bool PacketParser::parseEthernet(const uint8_t* data, size_t len,
     parsed.src_mac = macToString(data + 6);
     
     // Parse EtherType (bytes 12-13, big-endian)
-    parsed.ether_type = ntohs(*reinterpret_cast<const uint16_t*>(data + 12));
+    parsed.ether_type = read16(data + 12);
     
     offset = ETH_HEADER_LEN;
     return true;
@@ -120,6 +139,10 @@ bool PacketParser::parseIPv4(const uint8_t* data, size_t len,
     if (ip_header_len < MIN_IP_HEADER_LEN || len < offset + ip_header_len) {
         return false;
     }
+    const uint16_t total_length = read16(ip_data + 2);
+    if (total_length < ip_header_len) return false;
+    parsed.ip_end_offset = offset + total_length;
+    parsed.is_noninitial_fragment = (read16(ip_data + 6) & 0x1fff) != 0;
     
     // Parse fields
     parsed.ttl = ip_data[8];
@@ -151,21 +174,41 @@ bool PacketParser::parseIPv6(const uint8_t* data, size_t len,
     }
     
     const uint8_t* ip_data = data + offset;
+    if ((ip_data[0] >> 4) != 6) return false;
     parsed.ip_version = 6;
     parsed.ttl = ip_data[7];       // Hop Limit
     parsed.protocol = ip_data[6];  // Next Header (TCP=6, UDP=17, etc.)
-    parsed.src_ip = "IPv6";
-    parsed.dest_ip = "IPv6";
-    
-    uint32_t src32 = 0, dst32 = 0;
-    std::memcpy(&src32, ip_data + 20, 4); // last 4 bytes of IPv6 src
-    std::memcpy(&dst32, ip_data + 36, 4); // last 4 bytes of IPv6 dst
-    parsed.src_ip_num = src32;
-    parsed.dest_ip_num = dst32;
+    auto formatIPv6 = [](const uint8_t* address) {
+        std::ostringstream out;
+        out << std::hex;
+        for (int i = 0; i < 16; i += 2) {
+            if (i) out << ':';
+            out << ((static_cast<unsigned>(address[i]) << 8) | address[i + 1]);
+        }
+        return out.str();
+    };
+    parsed.src_ip = formatIPv6(ip_data + 8);
+    parsed.dest_ip = formatIPv6(ip_data + 24);
+    parsed.src_ip_num = 0; // IPv4-only WFP and DNS correlation do not use IPv6.
+    parsed.dest_ip_num = 0;
+    parsed.ip_end_offset = offset + IPV6_HEADER_LEN + read16(ip_data + 4);
     
     parsed.has_ip = true;
     
     offset += IPV6_HEADER_LEN;
+    const size_t available_end = std::min(len, parsed.ip_end_offset);
+    for (int count = 0; count < 8; ++count) {
+        const uint8_t next = parsed.protocol;
+        if (next != 0 && next != 43 && next != 44 && next != 60 && next != 51) break;
+        if (offset + 2 > available_end) return false;
+        const uint8_t following = data[offset];
+        size_t header_length = next == 44 ? 8 : next == 51 ? (static_cast<size_t>(data[offset + 1]) + 2) * 4 :
+            (static_cast<size_t>(data[offset + 1]) + 1) * 8;
+        if (header_length < 8 || header_length > available_end - offset) return false;
+        if (next == 44 && (read16(data + offset + 2) & 0xfff8) != 0) parsed.is_noninitial_fragment = true;
+        parsed.protocol = following;
+        offset += header_length;
+    }
     return true;
 }
 
@@ -181,16 +224,16 @@ bool PacketParser::parseTCP(const uint8_t* data, size_t len,
     const uint8_t* tcp_data = data + offset;
     
     // Source port (bytes 0-1)
-    parsed.src_port = ntohs(*reinterpret_cast<const uint16_t*>(tcp_data));
+    parsed.src_port = read16(tcp_data);
     
     // Destination port (bytes 2-3)
-    parsed.dest_port = ntohs(*reinterpret_cast<const uint16_t*>(tcp_data + 2));
+    parsed.dest_port = read16(tcp_data + 2);
     
     // Sequence number (bytes 4-7)
-    parsed.seq_number = ntohl(*reinterpret_cast<const uint32_t*>(tcp_data + 4));
+    parsed.seq_number = read32(tcp_data + 4);
     
     // Acknowledgment number (bytes 8-11)
-    parsed.ack_number = ntohl(*reinterpret_cast<const uint32_t*>(tcp_data + 8));
+    parsed.ack_number = read32(tcp_data + 8);
     
     // Data offset (upper 4 bits of byte 12) - header length in 32-bit words
     uint8_t data_offset = (tcp_data[12] >> 4) & 0x0F;
@@ -219,12 +262,15 @@ bool PacketParser::parseUDP(const uint8_t* data, size_t len,
     }
     
     const uint8_t* udp_data = data + offset;
+    const uint16_t udp_length = read16(udp_data + 4);
+    if (udp_length < UDP_HEADER_LEN) return false;
+    parsed.ip_end_offset = std::min(parsed.ip_end_offset, offset + udp_length);
     
     // Source port (bytes 0-1)
-    parsed.src_port = ntohs(*reinterpret_cast<const uint16_t*>(udp_data));
+    parsed.src_port = read16(udp_data);
     
     // Destination port (bytes 2-3)
-    parsed.dest_port = ntohs(*reinterpret_cast<const uint16_t*>(udp_data + 2));
+    parsed.dest_port = read16(udp_data + 2);
     
     parsed.has_udp = true;
     offset += UDP_HEADER_LEN;
@@ -256,6 +302,7 @@ std::string PacketParser::ipToString(uint32_t ip) {
 std::string PacketParser::protocolToString(uint8_t protocol) {
     switch (protocol) {
         case Protocol::ICMP: return "ICMP";
+        case 58: return "ICMPv6";
         case Protocol::TCP:  return "TCP";
         case Protocol::UDP:  return "UDP";
         default: return "Unknown(" + std::to_string(protocol) + ")";
