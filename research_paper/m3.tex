@@ -1,0 +1,52 @@
+\section{Implementation, Results, and Performance Analysis}
+\label{sec:results}
+
+\subsection{Live Capture Execution}
+The engine was executed in Windows PowerShell with administrator privileges to verify driver initialization, lock-free ring buffer binding, and live packet capture throughput (Fig.~\ref{fig:terminal_output}).
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\linewidth]{TerminalOutput.png}
+\caption{Console Execution and Telemetry Output of PacketInspector.exe.}
+\label{fig:terminal_output}
+\end{figure}
+
+\subsection{Interactive Web Dashboard}
+The real-time Security Operations Center (SOC) dashboard provides real-time visibility into packet rates, active connections, protocol distribution, and observed communication topology (Fig.~\ref{fig:web_dashboard}).
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\linewidth]{WebDashboard.png}
+\caption{DeepPacket Analyzer Real-Time Glassmorphic Web Dashboard.}
+\label{fig:web_dashboard}
+\end{figure}
+
+\subsection{Deep Packet Explorer and Classification Results}
+Fig.~\ref{fig:results_dashboard} illustrates the granular packet inspection and connection classification table, displaying TLS SNI attributions, DNS mappings, and policy enforcement matches.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\linewidth]{ResultsDashboard.png}
+\caption{Detailed Packet Explorer and Connection Intelligence View.}
+\label{fig:results_dashboard}
+\end{figure}
+
+\subsection{Throughput and Bandwidth Performance}
+Sustained traffic ingestion rates and bandwidth metrics over 1-second capture intervals are illustrated in Fig.~\ref{fig:throughput_chart}.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\linewidth]{ThroughputChart.png}
+\caption{Throughput and Ingestion Rate Over Time.}
+\label{fig:throughput_chart}
+\end{figure}
+
+\subsection{Feature Importance Breakdown}
+Fig.~\ref{fig:feature_importance} delineates the relative contribution of each classification mechanism across observed network sessions.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\linewidth]{FeatureImportance.png}
+\caption{Classification Feature Importance and Heuristic Distribution.}
+\label{fig:feature_importance}
+\end{figure}
