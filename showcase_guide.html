@@ -1,0 +1,917 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DeepPacket Analyzer — Executive Showcase & Architecture Deck</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg-dark: #090d16;
+    --bg-card: rgba(17, 24, 39, 0.88);
+    --bg-card-hover: rgba(30, 41, 59, 0.95);
+    --border: rgba(255, 255, 255, 0.08);
+    --border-accent: rgba(56, 189, 248, 0.35);
+    --primary: #38bdf8;
+    --primary-glow: rgba(56, 189, 248, 0.3);
+    --accent: #818cf8;
+    --accent-emerald: #34d399;
+    --accent-amber: #fbbf24;
+    --accent-rose: #f43f5e;
+    --text-main: #f8fafc;
+    --text-muted: #94a3b8;
+    --text-sub: #64748b;
+    --code-bg: #0b1120;
+    --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: var(--font-sans);
+    background-color: var(--bg-dark);
+    color: var(--text-main);
+    line-height: 1.6;
+    min-height: 100vh;
+    overflow-x: hidden;
+    background-image: 
+      radial-gradient(at 0% 0%, rgba(56, 189, 248, 0.1) 0px, transparent 50%),
+      radial-gradient(at 100% 100%, rgba(129, 140, 248, 0.1) 0px, transparent 50%);
+  }
+
+  /* Top Control Bar */
+  .top-bar {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    backdrop-filter: blur(16px);
+    background: rgba(9, 13, 22, 0.9);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 28px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .brand-logo {
+    width: 38px;
+    height: 38px;
+    background: linear-gradient(135deg, #38bdf8, #818cf8);
+    border-radius: 9px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 800;
+    font-size: 18px;
+    color: #090d16;
+    box-shadow: 0 0 18px var(--primary-glow);
+  }
+  .brand-title { font-size: 16px; font-weight: 700; color: #fff; }
+  .brand-subtitle { font-size: 12px; color: var(--text-muted); }
+
+  .nav-controls { display: flex; align-items: center; gap: 10px; }
+
+  .tab-btn {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-family: var(--font-sans);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .tab-btn:hover {
+    color: var(--text-main);
+    background: rgba(255, 255, 255, 0.08);
+    border-color: var(--border-accent);
+  }
+
+  .tab-btn.active {
+    background: linear-gradient(135deg, rgba(56, 189, 248, 0.15), rgba(129, 140, 248, 0.15));
+    border-color: var(--primary);
+    color: var(--primary);
+    box-shadow: 0 0 14px var(--primary-glow);
+  }
+
+  .action-btn {
+    background: linear-gradient(135deg, #0284c7, #2563eb);
+    color: white;
+    border: none;
+    padding: 8px 18px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    box-shadow: 0 0 15px rgba(37, 99, 235, 0.35);
+  }
+  .action-btn:hover { filter: brightness(1.15); transform: translateY(-1px); }
+
+  .timer-box {
+    background: rgba(15, 23, 42, 0.8);
+    border: 1px solid var(--border);
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--accent-emerald);
+  }
+
+  .main-wrapper { max-width: 1200px; margin: 0 auto; padding: 28px 20px 80px; }
+
+  .view-section { display: none; animation: fadeIn 0.3s ease forwards; }
+  .view-section.active { display: block; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+
+  /* Metrics Banner */
+  .metrics-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    margin-bottom: 25px;
+  }
+  .metric-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px 20px;
+    position: relative;
+    overflow: hidden;
+  }
+  .metric-card::after { content: ''; position: absolute; top: 0; left: 0; width: 3px; height: 100%; background: var(--primary); }
+  .metric-card.emerald::after { background: var(--accent-emerald); }
+  .metric-card.indigo::after { background: var(--accent); }
+  .metric-card.amber::after { background: var(--accent-amber); }
+  .metric-val { font-size: 24px; font-weight: 800; color: #fff; font-family: var(--font-mono); }
+  .metric-label { font-size: 11.5px; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+
+  /* Slide Deck View */
+  .slide-container {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 36px 45px;
+    min-height: 560px;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+  }
+  .slide-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  .slide-tag {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--primary);
+    background: rgba(56, 189, 248, 0.1);
+    border: 1px solid rgba(56, 189, 248, 0.2);
+    padding: 4px 10px;
+    border-radius: 20px;
+  }
+  .slide-content h2 {
+    font-size: 28px;
+    font-weight: 800;
+    letter-spacing: -0.6px;
+    background: linear-gradient(135deg, #ffffff, #94a3b8);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: 12px;
+  }
+  .slide-content p.lead { font-size: 16px; color: #cbd5e1; line-height: 1.5; margin-bottom: 20px; }
+  .slide-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 18px; margin-top: 15px; }
+  .slide-card {
+    background: rgba(15, 23, 42, 0.6);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px;
+    transition: all 0.2s ease;
+  }
+  .slide-card:hover { border-color: var(--border-accent); transform: translateY(-2px); background: rgba(15, 23, 42, 0.9); }
+  .slide-card h4 { font-size: 15px; font-weight: 700; color: var(--primary); margin-bottom: 6px; display: flex; align-items: center; gap: 8px; }
+  .slide-card p { font-size: 13px; color: var(--text-muted); line-height: 1.5; }
+  .slide-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 24px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border);
+  }
+  .slide-nav-btn {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--border);
+    color: var(--text-main);
+    padding: 9px 20px;
+    border-radius: 7px;
+    font-size: 13.5px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .slide-nav-btn:hover:not(:disabled) { background: var(--primary); color: #090d16; font-weight: 700; }
+  .slide-nav-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+  /* ==================== VISUAL ARCHITECTURE DIAGRAM STYLES ==================== */
+  .arch-diagram-wrapper {
+    background: #0b1120;
+    border: 1px solid var(--border-accent);
+    border-radius: 16px;
+    padding: 30px 25px;
+    box-shadow: 0 15px 35px rgba(0,0,0,0.5);
+    margin-bottom: 30px;
+  }
+
+  .arch-title {
+    font-size: 20px;
+    font-weight: 800;
+    color: #fff;
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .arch-subtitle {
+    font-size: 13.5px;
+    color: var(--text-muted);
+    margin-bottom: 25px;
+  }
+
+  /* Layer Flow Grid */
+  .arch-layers {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    position: relative;
+  }
+
+  .arch-layer {
+    background: rgba(17, 24, 39, 0.75);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px 20px;
+    position: relative;
+    transition: all 0.2s;
+  }
+  .arch-layer:hover {
+    border-color: var(--border-accent);
+    background: rgba(17, 24, 39, 0.95);
+  }
+
+  .layer-tag {
+    position: absolute;
+    top: -10px;
+    left: 20px;
+    background: #0f172a;
+    border: 1px solid var(--border-accent);
+    color: var(--primary);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 700;
+    padding: 2px 10px;
+    border-radius: 12px;
+    letter-spacing: 0.5px;
+  }
+
+  .layer-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 14px;
+    margin-top: 6px;
+  }
+
+  .node-box {
+    background: rgba(15, 23, 42, 0.85);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    transition: all 0.2s ease;
+  }
+  .node-box:hover {
+    transform: translateY(-2px);
+    border-color: var(--primary);
+    box-shadow: 0 4px 15px rgba(56, 189, 248, 0.15);
+  }
+  .node-box.cyan { border-left: 3px solid var(--primary); }
+  .node-box.indigo { border-left: 3px solid var(--accent); }
+  .node-box.emerald { border-left: 3px solid var(--accent-emerald); }
+  .node-box.amber { border-left: 3px solid var(--accent-amber); }
+  .node-box.rose { border-left: 3px solid var(--accent-rose); }
+
+  .node-title {
+    font-size: 13.5px;
+    font-weight: 700;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .node-desc { font-size: 11.5px; color: var(--text-muted); line-height: 1.4; }
+
+  /* Flow Arrow Connector */
+  .flow-arrow {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    color: var(--primary);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    gap: 8px;
+    margin: -6px 0;
+  }
+  .flow-arrow span {
+    background: #0f172a;
+    padding: 2px 8px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: 10.5px;
+  }
+
+  /* QA / Defense */
+  .qa-grid { display: grid; grid-template-columns: 1fr; gap: 14px; }
+  .qa-item {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px 24px;
+  }
+  .qa-item:hover { border-color: var(--border-accent); }
+  .qa-q { font-size: 15px; font-weight: 700; color: #fff; margin-bottom: 8px; display: flex; align-items: center; gap: 10px; }
+  .qa-badge {
+    background: rgba(56, 189, 248, 0.15);
+    color: var(--primary);
+    font-size: 10.5px;
+    font-weight: 700;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-family: var(--font-mono);
+  }
+  .qa-a { font-size: 14px; color: #cbd5e1; line-height: 1.6; }
+  .qa-a strong { color: var(--accent-emerald); }
+
+  /* Table */
+  .table-wrapper { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; margin: 16px 0; }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  th { background: rgba(15, 23, 42, 0.9); padding: 12px 16px; font-weight: 700; color: var(--primary); border-bottom: 1px solid var(--border); text-align: left; }
+  td { padding: 12px 16px; border-bottom: 1px solid var(--border); color: #cbd5e1; }
+  tr:last-child td { border-bottom: none; }
+
+  /* Print */
+  @media print {
+    body { background: #fff !important; color: #0f172a !important; padding: 0; }
+    .top-bar, .slide-nav-btn, .timer-box { display: none !important; }
+    .view-section { display: block !important; }
+    .slide-container, .qa-item, .metric-card, .table-wrapper, .arch-diagram-wrapper, .arch-layer, .node-box {
+      background: #fff !important; border: 1px solid #cbd5e1 !important; box-shadow: none !important; color: #0f172a !important; break-inside: avoid;
+    }
+    h2, h4, .qa-q, .metric-val, .node-title, .arch-title { color: #0f172a !important; -webkit-text-fill-color: #0f172a !important; }
+    .qa-a, td, p, .node-desc, .arch-subtitle { color: #334155 !important; }
+    th { background: #f1f5f9 !important; color: #0f172a !important; }
+  }
+</style>
+</head>
+<body>
+
+<!-- TOP CONTROL BAR -->
+<header class="top-bar">
+  <div class="brand">
+    <div class="brand-logo">DP</div>
+    <div>
+      <div class="brand-title">DeepPacket Analyzer</div>
+      <div class="brand-subtitle">Real-Time DPI &amp; Kernel WFP Engine</div>
+    </div>
+  </div>
+
+  <div class="nav-controls">
+    <button class="tab-btn active" onclick="switchView('slides')">📽️ Slide Deck</button>
+    <button class="tab-btn" onclick="switchView('architecture')">🏛️ Architecture Diagram</button>
+    <button class="tab-btn" onclick="switchView('defense')">🛡️ Viva &amp; Defense Q&amp;A</button>
+    <button class="tab-btn" onclick="switchView('demo')">🚀 Live Demo Script</button>
+
+    <div class="timer-box" id="timerBox">⏱️ 00:00</div>
+    <button class="action-btn" onclick="window.print()">🖨️ Save PDF</button>
+  </div>
+</header>
+
+<main class="main-wrapper">
+
+  <!-- ==================== VIEW 1: INTERACTIVE SLIDES ==================== -->
+  <section id="view-slides" class="view-section active">
+    
+    <div class="metrics-row">
+      <div class="metric-card">
+        <div class="metric-val">C++17</div>
+        <div class="metric-label">High-Perf Core Engine</div>
+      </div>
+      <div class="metric-card emerald">
+        <div class="metric-val">10,000</div>
+        <div class="metric-label">Lock-Free Ring Buffer</div>
+      </div>
+      <div class="metric-card indigo">
+        <div class="metric-val">Layer 7</div>
+        <div class="metric-label">TLS SNI / QUIC / DNS DPI</div>
+      </div>
+      <div class="metric-card amber">
+        <div class="metric-val">WFP Kernel</div>
+        <div class="metric-label">Fail-Safe Enforcement</div>
+      </div>
+    </div>
+
+    <div class="slide-container">
+      
+      <!-- Slide 1: Intro -->
+      <div class="slide-item" data-slide="1">
+        <div class="slide-header">
+          <span class="slide-tag">SLIDE 1 // EXECUTIVE OVERVIEW</span>
+          <span class="slide-pagination">1 / 5</span>
+        </div>
+        <div class="slide-content">
+          <h2>DeepPacket Analyzer &amp; Inspection Engine</h2>
+          <p class="lead">A line-rate C++17 Deep Packet Inspection engine designed to classify encrypted network traffic, correlate dynamic domains, and enforce kernel firewall filters.</p>
+          <div class="slide-grid">
+            <div class="slide-card">
+              <h4>🎯 What We Are Solving</h4>
+              <p>Traditional firewalls are blind to Layer 7 encrypted payloads (HTTPS/QUIC). Our engine inspects handshakes in real time without breaking encryption.</p>
+            </div>
+            <div class="slide-card">
+              <h4>⚡ Sub-Microsecond Speed</h4>
+              <p>A bounded, mutex-protected queue separates packet capture from DPI parsing and reports processing drops when the queue fills.</p>
+            </div>
+            <div class="slide-card">
+              <h4>🛡️ True Kernel Blocking</h4>
+              <p>Integrates with Windows Filtering Platform (WFP) to discard blocked packets right in the network driver layer before reaching user-space.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Slide 2: Problem vs Solution -->
+      <div class="slide-item" data-slide="2" style="display:none;">
+        <div class="slide-header">
+          <span class="slide-tag">SLIDE 2 // THE PROBLEM LANDSCAPE</span>
+          <span class="slide-pagination">2 / 5</span>
+        </div>
+        <div class="slide-content">
+          <h2>Why Legacy Firewalls Fail in 2026</h2>
+          <p class="lead">Over 85% of modern traffic is encrypted. Simple IP/Port filtering causes collateral outages on modern CDNs.</p>
+          <div class="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>Challenge</th>
+                  <th>Legacy Layer 3/4 Firewalls</th>
+                  <th>DeepPacket Analyzer Innovation</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>Encrypted HTTPS/QUIC</strong></td>
+                  <td>Blind to content; can only inspect IP and Port 443.</td>
+                  <td><strong>TLS SNI &amp; QUIC Initial parsing</strong> extracts hostnames during handshake.</td>
+                </tr>
+                <tr>
+                  <td><strong>Cloud CDN IPs (Google, AWS)</strong></td>
+                  <td>Blocking 1 IP blocks hundreds of unrelated services.</td>
+                  <td><strong>Generic DNS Snooping &amp; TTL cache</strong> correlates domains &amp; wildcards.</td>
+                </tr>
+                <tr>
+                  <td><strong>High CPU Overhead</strong></td>
+                  <td>User-space software firewalls waste CPU interrupts.</td>
+                  <td><strong>FastPath Flow Caching + WFP</strong> drops traffic in the Windows kernel.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Slide 3: Visual Architecture Overview -->
+      <div class="slide-item" data-slide="3" style="display:none;">
+        <div class="slide-header">
+          <span class="slide-tag">SLIDE 3 // ARCHITECTURAL FLOW</span>
+          <span class="slide-pagination">3 / 5</span>
+        </div>
+        <div class="slide-content">
+          <h2>Multi-Tiered Decoupled Pipeline</h2>
+          <p class="lead">Raw packets flow from Npcap into a 10k bounded queue, pass through the parsers and classifier, and can inform outbound IPv4 WFP rules in protect mode.</p>
+          
+          <div class="slide-grid">
+            <div class="slide-card">
+              <h4>1. Producer Tier</h4>
+              <p>Npcap / PCAP callback directly pushes raw packets into the SPSC circular ring buffer.</p>
+            </div>
+            <div class="slide-card">
+              <h4>2. FastPath &amp; DPI Tier</h4>
+              <p>Known flows hit 5-tuple hash table (O(1)). New flows undergo TLS SNI, QUIC, and DNS parsing.</p>
+            </div>
+            <div class="slide-card">
+              <h4>3. Kernel &amp; Dashboard Tier</h4>
+              <p>Injects WFP kernel filters and exports atomic JSON metrics to Node.js / Web UI every 500ms.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Slide 4: Innovations -->
+      <div class="slide-item" data-slide="4" style="display:none;">
+        <div class="slide-header">
+          <span class="slide-tag">SLIDE 4 // CORE INNOVATIONS</span>
+          <span class="slide-pagination">4 / 5</span>
+        </div>
+        <div class="slide-content">
+          <h2>Core Engineering Highlights</h2>
+          <p class="lead">Engineered for line-rate throughput, kernel-level safety, and live telemetry observability.</p>
+          <div class="slide-grid">
+            <div class="slide-card">
+              <h4>🚀 FastPath Acceleration</h4>
+              <p>5-tuple hash table (<code>src_ip, dst_ip, src_port, dst_port, proto</code>) caches classified flows. Over 98% of packets bypass deep inspection.</p>
+            </div>
+            <div class="slide-card">
+              <h4>🛡️ Fail-Safe Dynamic WFP</h4>
+              <p>Utilizes dynamic WFP sessions (<code>FWPM_SESSION_FLAG_DYNAMIC</code>). If the process terminates, the OS kernel auto-removes all filters.</p>
+            </div>
+            <div class="slide-card">
+              <h4>🌐 Real-Time Dashboard</h4>
+              <p>Node.js/Express server streams atomic JSON telemetry every 500ms for live throughput, protocols, application breakdowns, and flow monitoring.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Slide 5: Tech Stack & Summary -->
+      <div class="slide-item" data-slide="5" style="display:none;">
+        <div class="slide-header">
+          <span class="slide-tag">SLIDE 5 // TECH STACK &amp; SUMMARY</span>
+          <span class="slide-pagination">5 / 5</span>
+        </div>
+        <div class="slide-content">
+          <h2>Production-Grade Technology Stack</h2>
+          <p class="lead">Modern, low-overhead native systems programming paired with a reactive web interface.</p>
+          <div class="slide-grid">
+            <div class="slide-card">
+              <h4>⚙️ Native C++17 Core</h4>
+              <p>Memory-safe RAII, <code>std::atomic</code>, zero-copy buffer slicing, MSVC / CMake build system.</p>
+            </div>
+            <div class="slide-card">
+              <h4>🔌 Npcap &amp; WFP Win32</h4>
+              <p>Raw packet capture driver abstraction and Windows Filtering Platform kernel API integration.</p>
+            </div>
+            <div class="slide-card">
+              <h4>📊 Node.js &amp; Modern UI</h4>
+              <p>REST API endpoints, dynamic rule reloading, glassmorphic real-time telemetry dashboard.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="slide-footer">
+        <button class="slide-nav-btn" id="prevSlideBtn" onclick="changeSlide(-1)" disabled>&larr; Previous Slide</button>
+        <span style="font-size:13px; color:var(--text-muted); font-family:var(--font-mono);">Use [ &larr; / &rarr; ] keys to navigate</span>
+        <button class="slide-nav-btn" id="nextSlideBtn" onclick="changeSlide(1)">Next Slide &rarr;</button>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ==================== VIEW 2: VISUAL ARCHITECTURE DIAGRAM ==================== -->
+  <section id="view-architecture" class="view-section">
+    <div class="arch-diagram-wrapper">
+      <div class="arch-title">🏛️ DeepPacket End-to-End System Architecture</div>
+      <div class="arch-subtitle">Complete multi-layer data plane, DPI classification engine, WFP kernel enforcement, and telemetry pipeline.</div>
+
+      <div class="arch-layers">
+        
+        <!-- LAYER 1: Ingestion -->
+        <div class="arch-layer">
+          <span class="layer-tag">TIER 1 // PACKET INGESTION &amp; DRIVER LAYER</span>
+          <div class="layer-row">
+            <div class="node-box cyan">
+              <span class="node-title">📡 Network Interface</span>
+              <span class="node-desc">WiFi 6 / Ethernet / Loopback (Promiscuous mode enabled)</span>
+            </div>
+            <div class="node-box cyan">
+              <span class="node-title">🔌 Npcap Driver Wrapper</span>
+              <span class="node-desc">Dynamic DLL loader (<code>PcapLoader</code>) &amp; low-overhead capture loop</span>
+            </div>
+            <div class="node-box cyan">
+              <span class="node-title">📁 Offline PCAP Reader</span>
+              <span class="node-desc">Standard libpcap binary parser for recorded capture validation</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Connector -->
+        <div class="flow-arrow">
+          <span>▼ Raw Packet Callbacks (Producer Thread)</span>
+        </div>
+
+        <!-- LAYER 2: Queue -->
+        <div class="arch-layer">
+          <span class="layer-tag">TIER 2 // CONCURRENCY &amp; LOCK-FREE BUFFER</span>
+          <div class="layer-row">
+            <div class="node-box indigo" style="grid-column: 1 / -1;">
+              <span class="node-title">⚡ Lock-Free Ring Buffer (PacketQueue — 10,000 Slots)</span>
+              <span class="node-desc">Single-Producer Single-Consumer (SPSC) circular queue with atomic head/tail pointers. Decouples 10Gbps packet bursts from DPI processing without blocking mutexes.</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Connector -->
+        <div class="flow-arrow">
+          <span>▼ Dequeue Packet (Consumer Thread)</span>
+        </div>
+
+        <!-- LAYER 3: Parser & FastPath -->
+        <div class="arch-layer">
+          <span class="layer-tag">TIER 3 // L2/L3/L4 PARSING &amp; FASTPATH CACHE</span>
+          <div class="layer-row">
+            <div class="node-box emerald">
+              <span class="node-title">🔍 PacketParser</span>
+              <span class="node-desc">Zero-copy slicing: Ethernet II &rarr; IPv4/IPv6 &rarr; TCP / UDP / ICMP</span>
+            </div>
+            <div class="node-box amber">
+              <span class="node-title">🚀 FastPath Hash Cache</span>
+              <span class="node-desc">5-Tuple Hash Map (<code>src, dst, port, proto</code>). If flow is classified &rarr; skips DPI in O(1) time.</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Connector -->
+        <div class="flow-arrow">
+          <span>▼ Unclassified Handshake Packets</span>
+        </div>
+
+        <!-- LAYER 4: DPI Core -->
+        <div class="arch-layer">
+          <span class="layer-tag">TIER 4 // LAYER 7 DEEP PACKET INSPECTION (DPI CORE)</span>
+          <div class="layer-row">
+            <div class="node-box rose">
+              <span class="node-title">🔒 TLS SNI Extractor</span>
+              <span class="node-desc">Parses <code>ClientHello</code> extension to extract hostname without SSL keys</span>
+            </div>
+            <div class="node-box rose">
+              <span class="node-title">🌐 QUIC Initial Parser</span>
+              <span class="node-desc">Inspects UDP 443 initial frames for HTTP/3 SNI identification</span>
+            </div>
+            <div class="node-box rose">
+              <span class="node-title">📄 HTTP Host Parser</span>
+              <span class="node-desc">RFC-compliant extraction of Host / User-Agent headers</span>
+            </div>
+            <div class="node-box rose">
+              <span class="node-title">🧭 DNS Parser &amp; Snooper</span>
+              <span class="node-desc">Correlates domain names with resolved IP addresses + TTL aging</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Connector -->
+        <div class="flow-arrow">
+          <span>▼ Flow State &amp; Classification Decisions</span>
+        </div>
+
+        <!-- LAYER 5: State & Enforcement -->
+        <div class="arch-layer">
+          <span class="layer-tag">TIER 5 // FLOW TRACKING &amp; KERNEL ENFORCEMENT</span>
+          <div class="layer-row">
+            <div class="node-box emerald">
+              <span class="node-title">🔄 ConnectionTracker</span>
+              <span class="node-desc">State Machine (<code>NEW &rarr; ESTABLISHED &rarr; CLASSIFIED</code>) with 100 recent flows</span>
+            </div>
+            <div class="node-box amber">
+              <span class="node-title">📋 RuleManager Engine</span>
+              <span class="node-desc">Hot-reloads <code>rules.json</code> (IP, Port, Wildcard Domain <code>*.domain.com</code>)</span>
+            </div>
+            <div class="node-box rose">
+              <span class="node-title">🛡️ WFP Kernel Filter Driver</span>
+              <span class="node-desc">Windows Filtering Platform API: Injects kernel L3/L4 block filters with dynamic auto-cleanup</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Connector -->
+        <div class="flow-arrow">
+          <span>▼ Atomic JSON Telemetry Snapshots (500ms Interval)</span>
+        </div>
+
+        <!-- LAYER 6: Telemetry & UI -->
+        <div class="arch-layer">
+          <span class="layer-tag">TIER 6 // TELEMETRY, REST API &amp; DASHBOARD</span>
+          <div class="layer-row">
+            <div class="node-box cyan">
+              <span class="node-title">📊 StatsCollector</span>
+              <span class="node-desc">Outputs atomic telemetry JSON to <code>output.json</code> every 500ms</span>
+            </div>
+            <div class="node-box cyan">
+              <span class="node-title">🟢 Node.js / Express Server</span>
+              <span class="node-desc">REST Endpoints (<code>/data</code>, <code>/rules</code>, <code>/health</code>)</span>
+            </div>
+            <div class="node-box cyan">
+              <span class="node-title">💻 Glassmorphic Web UI</span>
+              <span class="node-desc">Live Throughput Chart, Protocol Breakdown, DNS Inspector &amp; Flow Table</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== VIEW 3: VIVA & DEFENSE Q&A ==================== -->
+  <section id="view-defense" class="view-section">
+    <h2 style="font-size:24px; margin-bottom: 20px; color:#fff;">🛡️ Viva Defense &amp; Cross-Questioning Guide</h2>
+
+    <div class="qa-grid">
+      <div class="qa-item">
+        <div class="qa-q">
+          <span class="qa-badge">PERFORMANCE</span>
+          Q1: Why did you build this in C++ instead of Python (Scapy) or Go?
+        </div>
+        <div class="qa-a">
+          <strong>Why C++17:</strong> The analyzer parses packet bytes directly and uses a bounded producer-consumer queue. Its measured offline throughput is documented in BENCHMARK.md; live capture capacity and loss still need separate testing.
+        </div>
+      </div>
+
+      <div class="qa-item">
+        <div class="qa-q">
+          <span class="qa-badge">ENCRYPTION</span>
+          Q2: HTTPS is encrypted. How can you inspect what website is being visited without SSL keys?
+        </div>
+        <div class="qa-a">
+          <strong>Key Defense:</strong> During the initial TLS handshake, before symmetric encryption is negotiated, the client sends a plaintext <code>ClientHello</code> packet containing the <strong>Server Name Indication (SNI)</strong> extension. Our DPI engine directly parses the TLS record layer to extract the requested hostname. We also passively snoop on DNS query/response packets to correlate IP addresses with domain names in real time.
+        </div>
+      </div>
+
+      <div class="qa-item">
+        <div class="qa-q">
+          <span class="qa-badge">MODERN PROTOCOLS</span>
+          Q3: What if the client uses TLS 1.3 with ECH (Encrypted Client Hello) or DoH (DNS over HTTPS)?
+        </div>
+        <div class="qa-a">
+          <strong>Key Defense:</strong> When ECH or DoH is enabled, our engine falls back to multi-layer heuristics: (1) <strong>QUIC Initial packet inspection</strong>, which often leaks the SNI prior to handshake completion, (2) <strong>Destination IP Autonomous System (AS) and IP block mapping</strong>, and (3) <strong>Flow fingerprinting</strong> based on packet size distributions, burst timing, and port heuristics.
+        </div>
+      </div>
+
+      <div class="qa-item">
+        <div class="qa-q">
+          <span class="qa-badge">OPTIMIZATION</span>
+          Q4: How does your FastPath caching make the engine faster?
+        </div>
+        <div class="qa-a">
+          <strong>Key Defense:</strong> A single connection stream contains thousands of data packets, but its protocol identity is established in the first 1–3 packets (SYN/ClientHello). Our FastPath maintains an O(1) 5-tuple hash table (<code>src_ip, dst_ip, src_port, dst_port, protocol</code>). Once a flow is marked <code>CLASSIFIED</code>, subsequent packets skip the DPI parsing engine entirely and are forwarded immediately.
+        </div>
+      </div>
+
+      <div class="qa-item">
+        <div class="qa-q">
+          <span class="qa-badge">SECURITY &amp; OS</span>
+          Q5: What is WFP, and why is kernel blocking superior to user-space blocking?
+        </div>
+        <div class="qa-a">
+          <strong>Key Defense:</strong> WFP (Windows Filtering Platform) is Microsoft's kernel-level network filtering driver architecture. User-space blocking only drops packets after the OS has already spent CPU cycles on hardware interrupts, packet reassembly, and socket processing. WFP filters block packets directly inside the kernel network driver stack at Layer 3/4 with zero user-space latency.
+        </div>
+      </div>
+
+      <div class="qa-item">
+        <div class="qa-q">
+          <span class="qa-badge">FAIL-SAFE</span>
+          Q6: If your engine crashes or terminates, will the user's internet remain blocked?
+        </div>
+        <div class="qa-a">
+          <strong>Key Defense:</strong> No. We register a <strong>Dynamic WFP Session</strong> using <code>FWPM_SESSION_FLAG_DYNAMIC</code>. The Windows kernel automatically garbage-collects and removes all registered filters the exact moment our process handle terminates or crashes, guaranteeing total fail-safe operation.
+        </div>
+      </div>
+
+      <div class="qa-item">
+        <div class="qa-q">
+          <span class="qa-badge">BURST HANDLING</span>
+          Q7: How do you handle sudden packet bursts under high network traffic?
+        </div>
+        <div class="qa-a">
+          <strong>Key Defense:</strong> We decouple packet ingestion from inspection using a dedicated Producer thread with an atomic single-producer single-consumer ring buffer (capacity: 10,000 packets). Telemetry tracks <code>capture_drops</code> and <code>processing_drops</code> in real time on the dashboard to ensure zero silent data loss.
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== VIEW 4: LIVE DEMO SCRIPT ==================== -->
+  <section id="view-demo" class="view-section">
+    <h2 style="font-size:24px; margin-bottom: 20px; color:#fff;">🚀 3-Minute Live Showcase Demo Script</h2>
+    
+    <div class="qa-grid">
+      <div class="qa-item">
+        <div class="qa-q">
+          <span class="qa-badge" style="background:rgba(52, 211, 153, 0.2); color:#34d399;">STEP 1: 00:00 - 00:45</span>
+          Launch Dashboard &amp; Explain Problem
+        </div>
+        <div class="qa-a">
+          <strong>Action:</strong> Show <code>http://localhost:3000</code> on screen.<br>
+          <strong>What to Say:</strong> <em>"This is our real-time DPI dashboard. In modern networks, over 85% of traffic is encrypted with TLS and QUIC, rendering standard IP-only firewalls ineffective. Our system solves this by performing Layer 7 deep packet inspection on handshakes in real time."</em>
+        </div>
+      </div>
+
+      <div class="qa-item">
+        <div class="qa-q">
+          <span class="qa-badge" style="background:rgba(56, 189, 248, 0.2); color:#38bdf8;">STEP 2: 00:45 - 01:45</span>
+          Start C++ Engine &amp; Generate Live Traffic
+        </div>
+        <div class="qa-a">
+          <strong>Action:</strong> Run <code>.\build\PacketInspector.exe --interface "&lt;WiFi_ID&gt;"</code>. Open YouTube or GitHub in browser.<br>
+          <strong>What to Say:</strong> <em>"Notice how our C++ engine immediately captures packets via Npcap, extracts the SNI from the TLS ClientHello without needing decryption keys, and streams classified flows directly into the dashboard at sub-microsecond latency."</em>
+        </div>
+      </div>
+
+      <div class="qa-item">
+        <div class="qa-q">
+          <span class="qa-badge" style="background:rgba(251, 191, 36, 0.2); color:#fbbf24;">STEP 3: 01:45 - 02:30</span>
+          Demonstrate Rule Engine &amp; WFP Blocking
+        </div>
+        <div class="qa-a">
+          <strong>Action:</strong> Show rule blocking interface. Add a block rule or explain <code>--protect</code> mode.<br>
+          <strong>What to Say:</strong> <em>"When we add a rule, the engine hot-reloads it without restarting. In Protect mode, it injects native Windows Filtering Platform filters into the kernel driver stack, discarding packets at Layer 3/4 before they reach user-space."</em>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<script>
+  // Timer Logic
+  let seconds = 0;
+  setInterval(() => {
+    seconds++;
+    const m = String(Math.floor(seconds / 60)).padStart(2, '0');
+    const s = String(seconds % 60).padStart(2, '0');
+    document.getElementById('timerBox').innerText = `⏱️ ${m}:${s}`;
+  }, 1000);
+
+  // Tab View Switcher
+  function switchView(viewName) {
+    document.querySelectorAll('.view-section').forEach(el => el.classList.remove('active'));
+    document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+
+    const targetView = document.getElementById(`view-${viewName}`);
+    if (targetView) targetView.classList.add('active');
+
+    if (event && event.target) {
+      event.target.classList.add('active');
+    }
+  }
+
+  // Slide Carousel Logic
+  let currentSlide = 1;
+  const totalSlides = 5;
+
+  function updateSlideDisplay() {
+    document.querySelectorAll('.slide-item').forEach(slide => {
+      slide.style.display = (parseInt(slide.getAttribute('data-slide')) === currentSlide) ? 'block' : 'none';
+    });
+
+    document.getElementById('prevSlideBtn').disabled = (currentSlide === 1);
+    document.getElementById('nextSlideBtn').disabled = (currentSlide === totalSlides);
+  }
+
+  function changeSlide(direction) {
+    currentSlide += direction;
+    if (currentSlide < 1) currentSlide = 1;
+    if (currentSlide > totalSlides) currentSlide = totalSlides;
+    updateSlideDisplay();
+  }
+
+  // Keyboard navigation
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowRight' || e.key === ' ') {
+      if (currentSlide < totalSlides) changeSlide(1);
+    } else if (e.key === 'ArrowLeft') {
+      if (currentSlide > 1) changeSlide(-1);
+    }
+  });
+</script>
+
+</body>
+</html>
