@@ -1,0 +1,16 @@
+﻿workload,trial,n_packets,elapsed_ms,pkt_per_s,notes
+mixed,1,10000,764,13088,cold start
+mixed,2,10000,576,17368,warm
+mixed,3,10000,564,17719,warm
+mixed,4,10000,564,17731,warm
+mixed,mean,10000,,17606,excluding trial 1 cold start
+mixed,std,10000,,335,excluding trial 1 cold start
+mixed,1,100000,1587,63011,cold start
+mixed,2,100000,1063,94058,warm
+mixed,3,100000,1059,94415,warm
+mixed,4,100000,1596,62673,warm
+mixed,mean,100000,,73049,all trials
+mixed,std,100000,,18640,all trials
+http_repeat,1,1000,554,1804,fixed overhead dominates
+http_repeat,1,10000,529,18886,linear scaling
+http_repeat,1,50000,547,91355,near-peak throughput

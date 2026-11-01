@@ -1,0 +1,17 @@
+method,metric,mean,std,ci_lower,ci_upper,n_flows
+Port-only,precision,0.0,0.0,0.0,0.0027,1400
+Port-only,recall,0.0,0.0,0.0,0.0,0
+Port-only,f1,0.0,0.0,0.0,0.0,1400
+Port-only,coverage,1.0,0.0,0.9973,1.0,1400
+SNI-only,precision,1.0,0.0,0.9928,1.0,532
+SNI-only,recall,0.532,0.0,0.501,0.5627,1000
+SNI-only,f1,0.6945,0.0,0.668,0.7189,1400
+SNI-only,coverage,0.38,0.0,0.3549,0.4057,1400
+SNI + DNS-single,precision,1.0,0.0,0.9928,1.0,532
+SNI + DNS-single,recall,0.532,0.0,0.501,0.5627,1000
+SNI + DNS-single,f1,0.6945,0.0,0.668,0.7189,1400
+SNI + DNS-single,coverage,0.38,0.0,0.3549,0.4057,1400
+SNI + DNS-probabilistic,precision,1.0,0.0,0.9952,1.0,800
+SNI + DNS-probabilistic,recall,0.8,0.0,0.7741,0.8236,1000
+SNI + DNS-probabilistic,f1,0.8889,0.0,0.8731,0.9032,1400
+SNI + DNS-probabilistic,coverage,0.5714,0.0,0.5453,0.5971,1400

@@ -4,6 +4,8 @@
 #include "types.h"
 #include "packet_parser.h"
 #include "rule_manager.h"
+#include "probabilistic_dns_cache.h"
+#include "tcp_reassembler.h"
 #include <unordered_map>
 #include <vector>
 #include <map>
@@ -44,16 +46,34 @@ public:
     std::string resolveAppName(const std::string& domain) const;
     void loadCriticalWebsites(const std::string& filename = "critical_websites.json");
 
-    struct DnsEntry {
-        std::string domain;
-        uint32_t    ttl = 300;
-        std::chrono::steady_clock::time_point expires_at;
-    };
+    // Probabilistic multi-domain DNS cache accessors
+    std::vector<std::string> getDomainsForIP(uint32_t ip) const { return dns_cache_.getDomainsForIP(ip); }
+    int getDnsOverwriteCount() const { return dns_cache_.getOverwriteCount(); }
+    const ProbabilisticDnsCache& getDnsCache() const { return dns_cache_; }
+    ProbabilisticDnsCache& getDnsCache() { return dns_cache_; }
+
+    // Stream reassembler accessor
+    TcpReassembler& getTcpReassembler() { return tcp_reassembler_; }
+
+    // Evaluation prediction-output mechanism (records every flow without dashboard FIFO eviction)
+    void setEvaluationExportPath(const std::string& path) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        eval_export_path_ = path;
+    }
+    const std::string& getEvaluationExportPath() const { return eval_export_path_; }
+    void exportEvaluationFlows(const std::string& path = "") const;
+    void exportEvaluationFlowsToCsv(const std::string& csv_path) const;
+    std::vector<FlowRecord> getEvaluationFlows() const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return eval_flows_;
+    }
 
 private:
     mutable std::mutex mutex_;
     std::unordered_map<FiveTuple, Connection, FiveTupleHash> connections_;
     std::vector<FlowRecord> recent_flows_;
+    std::string eval_export_path_;
+    std::vector<FlowRecord> eval_flows_;
     std::vector<std::string> dns_queries_;
     std::vector<std::string> http_requests_;
     std::vector<std::string> alerts_;
@@ -64,8 +84,11 @@ private:
     RuleManager rule_manager_;
     WfpEnforcement* enforcement_ = nullptr;
     
-    // IP -> domain cache built from DNS responses with TTL expiration
-    std::unordered_map<uint32_t, DnsEntry> ip_to_domain_;
+    // Probabilistic Multi-Domain DNS cache with weighted TTL expiration & ambiguity tracking
+    ProbabilisticDnsCache dns_cache_;
+
+    // TCP Reassembler for segmented TLS Client Hellos
+    TcpReassembler tcp_reassembler_;
     
     // Critical websites registry loaded from JSON: name -> list of wildcard patterns
     std::vector<std::pair<std::string, std::vector<std::string>>> critical_websites_;

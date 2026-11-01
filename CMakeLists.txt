@@ -23,6 +23,8 @@ set(SOURCES
     src/stats_collector.cpp
     src/traffic_analytics.cpp
     src/wfp_enforcement.cpp
+    src/probabilistic_dns_cache.cpp
+    src/tcp_reassembler.cpp
 )
 
 # Header files location

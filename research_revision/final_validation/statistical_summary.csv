@@ -1,0 +1,10 @@
+metric,value
+Paired t-statistic,25.2103
+Paired t p-value,1.0288e-29
+Cohen's d,3.5653
+Wilcoxon W-statistic,0.0
+Wilcoxon p-value,1.2718e-10
+Mean Recall SNI-only,"66.40% (95% CI: [63.72%, 69.08%])"
+Mean Recall SNI+DNS-prob,"100.00% (95% CI: [nan%, nan%])"
+Mean Lift (Recall Delta),"33.60% (95% CI: [30.92%, 36.28%])"
+False Positive Rate (FPR),"0.0000% (95% Wilson CI: [0.0000%, 0.9512%])"

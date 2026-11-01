@@ -1,0 +1,7 @@
+Configuration,Total_Flows,TP,FP,FN,TN,Precision,Recall,F1_Score,Accuracy,Coverage,FPR,FNR
+Config A: Port-only,200,0,200,0,0,0.0,0.0,0.0,0.0,1.0,1.0,0.0
+Config B: SNI-only (No Reassembly),200,50,0,100,50,1.0,0.3333,0.5,0.5,0.25,0.0,0.6667
+Config C: SNI + TCP Reassembly,200,100,0,50,50,1.0,0.6667,0.8,0.75,0.5,0.0,0.3333
+Config D: Config C + Single-Domain DNS,200,130,20,0,50,0.8667,1.0,0.9286,0.9,0.75,0.2857,0.0
+Config E: Config C + Probabilistic DNS (Full),200,130,20,0,50,0.8667,1.0,0.9286,0.9,0.75,0.2857,0.0
+Config F: DNS-only Correlation,200,130,20,0,50,0.8667,1.0,0.9286,0.9,0.75,0.2857,0.0

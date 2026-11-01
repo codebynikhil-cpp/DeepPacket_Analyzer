@@ -1,0 +1,5 @@
+method,tp,fp,fn,tn,mean_precision,std_precision,mean_recall,std_recall,mean_f1,std_f1,mean_coverage,std_coverage,mean_fpr,std_fpr,overall_precision,overall_recall,overall_f1
+Port-only,0,1400,0,0,0.0,0.0,0.0,0.0,0.0,0.0,1.0,0.0,1.0,0.0,0.0,0.0,0.0
+SNI + DNS-probabilistic,1000,0,0,400,1.0,0.0,1.0,0.0,1.0,0.0,0.7142857142857143,0.0,0.0,0.0,1.0,1.0,1.0
+SNI + DNS-single,664,0,336,400,1.0,0.0,0.664,0.0,0.798076923076923,0.0,0.4742857142857143,0.0,0.0,0.0,1.0,0.664,0.798076923076923
+SNI-only,664,0,336,400,1.0,0.0,0.664,0.0,0.798076923076923,0.0,0.4742857142857143,0.0,0.0,0.0,1.0,0.664,0.798076923076923

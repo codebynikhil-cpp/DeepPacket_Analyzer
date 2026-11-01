@@ -1,6 +1,16 @@
 {
-  "blocked_ips": [],
-  "blocked_domains": [],
-  "blocked_apps": [],
-  "blocked_ports": []
+  "blocked_ips": [
+    "149.154.170.140"
+  ],
+  "blocked_domains": [
+    "*.doubleclick.net",
+    "adservice.google.com",
+    "tiktok.com"
+  ],
+  "blocked_apps": [
+    "WhatsApp"
+  ],
+  "blocked_ports": [
+    8080
+  ]
 }

@@ -1,0 +1,5 @@
+method,mean_precision,std_precision,mean_recall,std_recall,mean_f1,std_f1,mean_coverage,std_coverage
+Port-only,0.0,0.0,0.0,0.0,0.0,0.0,1.0,0.0
+SNI-only,1.0,0.0,0.532,0.0,0.6945,0.0,0.38,0.0
+SNI + DNS-single,1.0,0.0,0.532,0.0,0.6945,0.0,0.38,0.0
+SNI + DNS-probabilistic,1.0,0.0,0.8,0.0,0.8889,0.0,0.5714,0.0

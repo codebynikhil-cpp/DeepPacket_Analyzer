@@ -59,3 +59,17 @@ desktop.ini
 # ── Windows specific ───────────────────────────────────────────────────────────
 ehthumbs.db
 [Dd]esktop.ini
+
+# ── Python cache & environment ─────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+.env
+.env.*
+*.key
+*.pem
+*.token
+
+# ── Temporary Evaluation Artifacts ─────────────────────────────────────────────
+eval_capture_*.json
+ablation_actual_eval.json

@@ -1,0 +1,6 @@
+Test,Metric,Statistic,p_Value,Effect_Size_Cohen_d,Significant_p_005
+Domain-Level Paired t-test,Recall,19.8012,4.989885223765831e-25,2.8003,True
+Domain-Level Wilcoxon Signed-Rank,Recall,0.0,1.4250381342879675e-10,2.8003,True
+Clustered Bootstrap 95% CI,Precision,1.0,N/A,"[1.0000, 1.0000]",True
+Clustered Bootstrap 95% CI,Recall,0.8,N/A,"[0.8000, 0.8000]",True
+Clustered Bootstrap 95% CI,F1-Score,0.8889,N/A,"[0.8889, 0.8889]",True

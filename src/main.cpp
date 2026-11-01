@@ -102,6 +102,7 @@ int main(int argc, char* argv[]) {
     std::string mode = "";
     std::string input_arg = "";
     std::string output_arg = "";
+    std::string eval_export_arg = "";
     bool enable_wfp = false;
 
     // Argument parsing
@@ -128,6 +129,8 @@ int main(int argc, char* argv[]) {
             if (i + 1 < argc) input_arg = argv[++i];
         } else if (arg == "--protect") {
             enable_wfp = true;
+        } else if (arg == "--export-eval-flows") {
+            if (i + 1 < argc) eval_export_arg = argv[++i];
         } else if (arg == "--help" || arg == "-h") {
             printUsage(argv[0]);
             return 0;
@@ -165,6 +168,13 @@ int main(int argc, char* argv[]) {
     FastPath fast_path;
     DPIEngine dpi_engine;
     ConnectionTracker connection_tracker;
+    const char* env_eval = std::getenv("DPA_EVAL_FLOWS_FILE");
+    if (env_eval && eval_export_arg.empty()) {
+        eval_export_arg = env_eval;
+    }
+    if (!eval_export_arg.empty()) {
+        connection_tracker.setEvaluationExportPath(eval_export_arg);
+    }
 
     // Initialize WFP enforcement ONLY if --protect was explicitly requested
     WfpEnforcement wfp;
@@ -355,6 +365,9 @@ int main(int argc, char* argv[]) {
     source->close();
     output.close();
     connection_tracker.generateReport();
+    if (!eval_export_arg.empty()) {
+        connection_tracker.exportEvaluationFlows(eval_export_arg);
+    }
     wfp.shutdown();
 
     std::cout << "[Pipeline] Analysis complete. Clean shutdown successful." << std::endl;

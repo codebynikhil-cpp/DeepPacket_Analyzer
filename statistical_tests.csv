@@ -1,0 +1,10 @@
+comparison,metric,p_value,effect_size,significant_at_0.05
+SNI-only vs SNI + DNS-single,precision,1.0000,0.0,False
+SNI-only vs SNI + DNS-single,recall,1.0000,0.0,False
+SNI-only vs SNI + DNS-single,f1,1.0000,0.0,False
+SNI + DNS-single vs SNI + DNS-probabilistic,precision,1.0000,0.0,False
+SNI + DNS-single vs SNI + DNS-probabilistic,recall,0.0001,9.99,True
+SNI + DNS-single vs SNI + DNS-probabilistic,f1,0.0001,9.99,True
+SNI-only vs SNI + DNS-probabilistic,precision,1.0000,0.0,False
+SNI-only vs SNI + DNS-probabilistic,recall,0.0001,9.99,True
+SNI-only vs SNI + DNS-probabilistic,f1,0.0001,9.99,True

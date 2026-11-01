@@ -1,0 +1,17 @@
+% Formatted LaTeX Table for Research Paper Submission
+\begin{table*}[t]
+\centering
+\caption{Quantitative Traffic Classification Performance and 95\% Confidence Intervals Across 1,400 Flows}
+\label{tab:statistical_baselines}
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{lcccc}
+\hline
+\textbf{Method} & \textbf{Precision (95\% CI)} & \textbf{Recall (95\% CI)} & \textbf{F1-Score (95\% CI)} & \textbf{Coverage} \\
+\hline
+Port-only                    & 0.0\% [0.0--0.3\%] & 0.0\% [0.0--0.0\%] & 0.0\% [0.0--0.0\%] & 100.0\% \\
+SNI-only                     & 100.0\% [99.3--100.0\%] & 53.2\% [50.1--56.3\%] & 69.5\% [66.8--71.9\%] & 38.0\% \\
+SNI $+$ DNS-single           & 100.0\% [99.3--100.0\%] & 53.2\% [50.1--56.3\%] & 69.5\% [66.8--71.9\%] & 38.0\% \\
+SNI $+$ DNS-probabilistic    & 100.0\% [99.5--100.0\%] & 80.0\% [77.4--82.4\%] & 88.9\% [87.3--90.3\%] & 57.1\% \\
+\hline
+\end{tabular}
+\end{table*}

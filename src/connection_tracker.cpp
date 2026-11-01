@@ -113,36 +113,20 @@ void ConnectionTracker::setEnforcement(WfpEnforcement* enforcement) {
 
 void ConnectionTracker::reinstallWfpRules() {
     std::lock_guard<std::mutex> lock(mutex_);
-    std::unordered_map<uint32_t, std::string> plain_ip_domain;
-    auto now = std::chrono::steady_clock::now();
-    for (const auto& kv : ip_to_domain_) {
-        if (kv.second.expires_at > now) {
-            plain_ip_domain[kv.first] = kv.second.domain;
-        }
-    }
+    std::unordered_map<uint32_t, std::string> plain_ip_domain = dns_cache_.getActiveMappings();
     rule_manager_.reinstallAllWfpRules(plain_ip_domain);
 }
 
 void ConnectionTracker::learnDnsMapping(const std::string& domain, uint32_t ip, uint32_t ttl) {
     if (ip == 0 || domain.empty()) return;
-    if (ttl == 0) ttl = 300; // minimum default 5 min
-    auto expires = std::chrono::steady_clock::now() + std::chrono::seconds(ttl);
-    if (ip_to_domain_.size() >= 16384 && ip_to_domain_.find(ip) == ip_to_domain_.end())
-        ip_to_domain_.erase(ip_to_domain_.begin());
-    ip_to_domain_[ip] = { domain, ttl, expires };
+    dns_cache_.learnDnsMapping(domain, ip, ttl);
     if (enforcement_) {
         enforcement_->onNewDnsMapping(domain, ip);
     }
 }
 
 std::string ConnectionTracker::lookupDomainForIP(uint32_t ip) {
-    auto it = ip_to_domain_.find(ip);
-    if (it != ip_to_domain_.end()) {
-        if (it->second.expires_at > std::chrono::steady_clock::now()) {
-            return it->second.domain;
-        }
-    }
-    return "";
+    return dns_cache_.getBestDomainForIP(ip);
 }
 
 Connection* ConnectionTracker::getOrCreateConnection(const FiveTuple& tuple) {
@@ -194,13 +178,10 @@ PacketAction ConnectionTracker::process(const PacketAnalyzer::ParsedPacket& pkt,
     std::lock_guard<std::mutex> lock(mutex_);
     total_seen_++;
     if (total_seen_ % 1000 == 0) {
-        const auto now = std::chrono::steady_clock::now();
-        for (auto it = ip_to_domain_.begin(); it != ip_to_domain_.end();) {
-            if (it->second.expires_at <= now) it = ip_to_domain_.erase(it);
-            else ++it;
-        }
+        dns_cache_.cleanupExpired();
+        tcp_reassembler_.evictOldFlows();
         if (connections_.size() > 10000) {
-            const auto cutoff = now - std::chrono::minutes(5);
+            const auto cutoff = std::chrono::steady_clock::now() - std::chrono::minutes(5);
             for (auto it = connections_.begin(); it != connections_.end();) {
                 if (it->second.last_seen < cutoff) it = connections_.erase(it);
                 else ++it;
@@ -283,6 +264,20 @@ PacketAction ConnectionTracker::process(const PacketAnalyzer::ParsedPacket& pkt,
         }
     }
 
+    // 1b. Segmented TLS stream reassembly fallback (if SNI was not found in single packet)
+    if (conn->sni.empty() && pkt.has_tcp && (pkt.src_port == 443 || pkt.dest_port == 443)) {
+        auto reassembled = tcp_reassembler_.inspectSegment(pkt);
+        if (reassembled) {
+            conn->sni = *reassembled;
+            conn->app_type = sniToAppType(conn->sni);
+            if (conn->app_type == AppType::UNKNOWN) conn->app_type = AppType::HTTPS;
+            conn->app_name = resolveAppName(conn->sni);
+            conn->detection_method = "TLS SNI";
+            conn->state = ConnectionState::CLASSIFIED;
+            recordHostnameObservation(conn->sni);
+        }
+    }
+
     // 2. DNS Correlation Fallback (if no SNI was directly extracted on this packet)
     if (conn->sni.empty()) {
         std::string resolved = pkt.ip_version == 4 ? lookupDomainForIP(pkt.dest_ip_num) : "";
@@ -353,9 +348,12 @@ PacketAction ConnectionTracker::process(const PacketAnalyzer::ParsedPacket& pkt,
         rec.policy = blocked ? "DROP" : "FORWARD";
         rec.enforcement = (enforcement_ && enforcement_->isActive()) ? "WFP ACTIVE" : "MONITOR ONLY";
 
-        recent_flows_.push_back(std::move(rec));
-        if (recent_flows_.size() > 100) {
+        recent_flows_.push_back(rec);
+        if (recent_flows_.size() > 500) {
             recent_flows_.erase(recent_flows_.begin());
+        }
+        if (!eval_export_path_.empty()) {
+            eval_flows_.push_back(std::move(rec));
         }
         if (conn->state == ConnectionState::NEW) conn->state = ConnectionState::ESTABLISHED;
     } else {
@@ -376,6 +374,25 @@ PacketAction ConnectionTracker::process(const PacketAnalyzer::ParsedPacket& pkt,
                 it->policy_reason = policy_reason;
                 it->policy = blocked ? "DROP" : "FORWARD";
                 break;
+            }
+        }
+        if (!eval_export_path_.empty()) {
+            for (auto it = eval_flows_.rbegin(); it != eval_flows_.rend(); ++it) {
+                if (it->src_ip == conn->tuple.src_ip && it->dst_ip == conn->tuple.dst_ip &&
+                    it->src_port == conn->tuple.src_port && it->dst_port == conn->tuple.dst_port &&
+                    it->protocol == PacketAnalyzer::PacketParser::protocolToString(conn->tuple.protocol)) {
+                    it->packets = conn->packets_in + conn->packets_out;
+                    it->bytes = conn->bytes_in + conn->bytes_out;
+                    it->last_seen_us = static_cast<uint64_t>(pkt.timestamp_sec) * 1000000 + pkt.timestamp_usec;
+                    it->domain = conn->sni.empty() ? "UNKNOWN" : conn->sni;
+                    it->application = conn->app_name.empty() ? appTypeToString(conn->app_type) : conn->app_name;
+                    it->method = conn->detection_method;
+                    it->confidence = (it->method == "TLS SNI" || it->method == "HTTP Host") ? "high" :
+                                     (it->method == "DNS Correlation" || it->method == "DNS Query") ? "medium" : "low";
+                    it->policy_reason = policy_reason;
+                    it->policy = blocked ? "DROP" : "FORWARD";
+                    break;
+                }
             }
         }
     }
@@ -414,6 +431,79 @@ void ConnectionTracker::generateReport() {
                   << std::setw(14) << std::left << bar_str << " |\n";
     }
     std::cout << "+--------------------------------------------------------------+\n";
+}
+
+void ConnectionTracker::exportEvaluationFlows(const std::string& path) const {
+    const std::string target = path.empty() ? eval_export_path_ : path;
+    if (target.empty()) return;
+
+    std::lock_guard<std::mutex> lock(mutex_);
+    nlohmann::json j;
+    j["schema_version"] = 1;
+    j["total_evaluation_flows"] = eval_flows_.size();
+    nlohmann::json flows_arr = nlohmann::json::array();
+
+    for (const auto& f : eval_flows_) {
+        nlohmann::json item;
+        item["src_ip"] = f.src_ip;
+        item["src_port"] = f.src_port;
+        item["dst_ip"] = f.dst_ip;
+        item["dst_port"] = f.dst_port;
+        item["protocol"] = f.protocol;
+        item["domain"] = f.domain;
+        item["application"] = f.application;
+        item["method"] = f.method;
+        item["confidence"] = f.confidence;
+        item["policy"] = f.policy;
+        item["policy_reason"] = f.policy_reason;
+        item["enforcement"] = f.enforcement;
+        item["packets"] = f.packets;
+        item["bytes"] = f.bytes;
+        flows_arr.push_back(item);
+    }
+    j["flows"] = flows_arr;
+
+    std::ofstream out(target, std::ios::trunc);
+    if (out.is_open()) {
+        out << j.dump(2) << "\n";
+        out.close();
+        std::cout << "[Evaluation] Exported " << eval_flows_.size() 
+                  << " unevicted flow records to " << target << std::endl;
+    } else {
+        std::cerr << "[Evaluation] Error: Could not write evaluation flows to " << target << std::endl;
+    }
+}
+
+void ConnectionTracker::exportEvaluationFlowsToCsv(const std::string& csv_path) const {
+    if (csv_path.empty()) return;
+
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::ofstream out(csv_path, std::ios::trunc);
+    if (!out.is_open()) {
+        std::cerr << "[Evaluation] Error: Could not write CSV to " << csv_path << std::endl;
+        return;
+    }
+
+    out << "flow_id,src_ip,src_port,dst_ip,dst_port,protocol,domain,application,method,confidence,policy,packets,bytes\n";
+    size_t id = 1;
+    for (const auto& f : eval_flows_) {
+        out << id++ << ","
+            << f.src_ip << ","
+            << f.src_port << ","
+            << f.dst_ip << ","
+            << f.dst_port << ","
+            << f.protocol << ","
+            << "\"" << f.domain << "\","
+            << "\"" << f.application << "\","
+            << "\"" << f.method << "\","
+            << f.confidence << ","
+            << f.policy << ","
+            << f.packets << ","
+            << f.bytes << "\n";
+    }
+    out.close();
+    std::cout << "[Evaluation] Exported " << eval_flows_.size() 
+              << " flow records to CSV: " << csv_path << std::endl;
 }
 
 } // namespace DPI

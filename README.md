@@ -248,6 +248,72 @@ Chart.js is installed at a locked version and served locally. No CDN, web font, 
 
 ---
 
+## Research Evaluation Pipeline
+
+An automated research evaluation suite is included to benchmark classification performance across multi-capture PCAP datasets, comparing 4 classification baselines with Wilson-score and bootstrap statistical confidence intervals.
+
+For full research documentation, see [README_RESEARCH.md](README_RESEARCH.md).
+
+### Prerequisites
+
+| Requirement | Minimum Version | Purpose |
+|---|---|---|
+| **Python** | 3.10+ | Evaluation scripts & dataset synthesis |
+| **Python Packages** | `requests`, `urllib3`, `scapy`, `pandas`, `numpy`, `matplotlib`, `scikit-learn`, `scipy` | Run `pip install -r requirements-eval.txt` or install individually |
+| **Node.js** | 20+ | Dashboard and test runner (`npm test`) |
+| **Compiled Engine** | C++17 binary | `build/PacketInspector.exe` |
+
+### Setting `DPA_ENGINE_PATH`
+
+By default, the orchestration scripts auto-detect `.\build\PacketInspector.exe`. You can point to a specific engine binary using the `DPA_ENGINE_PATH` environment variable:
+
+- **PowerShell:**
+  ```powershell
+  $env:DPA_ENGINE_PATH = ".\build\PacketInspector.exe"
+  ```
+- **Bash / Linux / macOS:**
+  ```bash
+  export DPA_ENGINE_PATH=./build/PacketInspector
+  ```
+
+### Running the Full Pipeline
+
+Execute the complete end-to-end evaluation with a single command (verifies files, runs engine across all captures, evaluates baselines, computes statistical significance, and generates LaTeX tables & publication plots):
+
+- **Windows (PowerShell):**
+  ```powershell
+  powershell -ExecutionPolicy Bypass -File .\run_evaluation.ps1
+  ```
+  *Tip: Use `-SkipEngineRun` to re-analyze existing engine outputs without re-running PCAP parsing:*
+  ```powershell
+  powershell -ExecutionPolicy Bypass -File .\run_evaluation.ps1 -SkipEngineRun
+  ```
+
+- **Linux / macOS / WSL (Bash):**
+  ```bash
+  ./run_evaluation.sh
+  ```
+
+### Output Files & Research Artifacts
+
+| Output File | Type | Description |
+|---|---|---|
+| `dataset_capture_1.pcap` .. `4.pcap` | Dataset | 1,400 raw packet capture flows (350 flows × 4 independent sessions) |
+| `ground_truth_1.csv` .. `4.csv` | Ground Truth | Flow labels with 50 domains (5 categories) + 100 negative examples |
+| `output_capture_1.json` .. `4.json` | Telemetry | Engine JSON telemetry snapshots corresponding to each capture run |
+| `baseline_comparison.csv` | Metrics | Quantitative evaluation metrics (Precision, Recall, F1, Coverage) per capture |
+| `baseline_aggregate.csv` | Metrics | Mean ± standard deviation across all 4 captures for each baseline |
+| `error_analysis.csv` | Diagnostics | Granular false positive and false negative misclassification breakdown |
+| `statistical_significance.csv` | Statistics | 95% Wilson score (Precision/Recall) and 1,000-sample bootstrap (F1) CIs |
+| `statistical_tests.csv` | Statistics | Paired hypothesis tests (t-test / Wilcoxon) with p-values and Cohen's d effect sizes |
+| `results_table.tex` | Publication | Camera-ready LaTeX table comparing all baseline methods |
+| `baseline_comparison.png` | Figure | Multi-method comparison bar chart |
+| `evidence_coverage.png` | Figure | Classification coverage across evidence resolution types |
+| `confusion_matrix_category.png` / `.pdf` | Figure | Publication-quality 6×7 category confusion matrix (normalized % and flow counts) |
+| `confusion_matrix.png` | Figure | Representative domain disambiguation matrix |
+
+---
+
 ## Known Limitations
 
 - **WFP requires Administrator**: if WFP cannot initialize, the engine reports an error and continues without enforcement. Check `wfp.status` in `output.json`. Elevated enforcement was not verified in the current non-elevated test session.

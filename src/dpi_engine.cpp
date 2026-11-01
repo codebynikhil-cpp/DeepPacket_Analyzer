@@ -15,6 +15,10 @@ AppClassification DPIEngine::inspect(const PacketAnalyzer::ParsedPacket& pkt) {
     if (pkt.has_tcp) {
         if (pkt.src_port == 443 || pkt.dest_port == 443) {
             auto sniOpt = SNIExtractor::extract(pkt.payload_data, pkt.payload_length);
+            if (!sniOpt) {
+                // Attempt stream reassembly for multi-segment TLS Client Hellos
+                sniOpt = tcp_reassembler_.inspectSegment(pkt);
+            }
             if (sniOpt) {
                 result.method = "TLS SNI";
                 result.sni_or_host = *sniOpt;
