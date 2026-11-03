@@ -137,6 +137,8 @@ enum class AppType {
 
 std::string appTypeToString(AppType type);
 AppType sniToAppType(const std::string& sni);
+// Classify by known service IP ranges (catches MTProto, QUIC-direct, etc.)
+AppType ipToAppType(uint32_t ip_be);
 
 struct AppClassification {
     AppType app = AppType::UNKNOWN;

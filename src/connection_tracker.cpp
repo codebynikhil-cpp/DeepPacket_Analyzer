@@ -290,15 +290,30 @@ PacketAction ConnectionTracker::process(const PacketAnalyzer::ParsedPacket& pkt,
             conn->detection_method = "DNS Correlation";
             conn->state = ConnectionState::CLASSIFIED;
         } else if (conn->app_type == AppType::UNKNOWN) {
-            if (pkt.dest_port == 443 || pkt.src_port == 443) {
-                conn->app_type = pkt.has_udp ? AppType::UNKNOWN : AppType::HTTPS;
-                conn->detection_method = "Port 443";
-            } else if (pkt.dest_port == 80 || pkt.src_port == 80) {
-                conn->app_type = AppType::HTTP;
-                conn->detection_method = "Port 80";
-            } else if (pkt.dest_port == 53 || pkt.src_port == 53) {
-                conn->app_type = AppType::DNS;
-                conn->detection_method = "Port 53";
+            // 2.5. IP-range lookup: catches MTProto, QUIC-direct, etc.
+            if (pkt.ip_version == 4) {
+                AppType ip_app = ipToAppType(pkt.dest_ip_num);
+                if (ip_app == AppType::UNKNOWN) ip_app = ipToAppType(pkt.src_ip_num);
+                if (ip_app != AppType::UNKNOWN) {
+                    conn->app_type = ip_app;
+                    conn->app_name = appTypeToString(ip_app);
+                    conn->sni = conn->app_name; // Use app name as display label
+                    conn->detection_method = "IP Range";
+                    conn->state = ConnectionState::CLASSIFIED;
+                }
+            }
+            // 3. Port-based fallback
+            if (conn->app_type == AppType::UNKNOWN) {
+                if (pkt.dest_port == 443 || pkt.src_port == 443) {
+                    conn->app_type = pkt.has_udp ? AppType::UNKNOWN : AppType::HTTPS;
+                    conn->detection_method = "Port 443";
+                } else if (pkt.dest_port == 80 || pkt.src_port == 80) {
+                    conn->app_type = AppType::HTTP;
+                    conn->detection_method = "Port 80";
+                } else if (pkt.dest_port == 53 || pkt.src_port == 53) {
+                    conn->app_type = AppType::DNS;
+                    conn->detection_method = "Port 53";
+                }
             }
         }
     }

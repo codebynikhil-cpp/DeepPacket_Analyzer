@@ -1,4 +1,5 @@
 #include "types.h"
+#include "platform.h"
 #include <sstream>
 #include <iomanip>
 #include <algorithm>
@@ -455,4 +456,120 @@ AppType sniToAppType(const std::string& sni) {
     return AppType::HTTPS;
 }
 
+
+// ---------------------------------------------------------------------------
+// IP-range to application mapping
+// Covers services that use direct IP connections (MTProto, QUIC-direct, etc.)
+// IP ranges are stored in network byte order (big-endian) as received by the
+// packet parser (src_ip_num / dest_ip_num).
+// ---------------------------------------------------------------------------
+static bool inRange(uint32_t ip, uint32_t net_be, uint8_t prefix) {
+    // ip and net_be are both in network byte order; convert to host order for arithmetic
+    const uint32_t ip_h  = PortableNet::netToHost32(ip);
+    const uint32_t net_h = PortableNet::netToHost32(net_be);
+    if (prefix == 0) return true;
+    const uint32_t mask = prefix >= 32 ? 0xFFFFFFFFu : ~((1u << (32 - prefix)) - 1);
+    return (ip_h & mask) == (net_h & mask);
+}
+
+// Helper: build a uint32_t in network-byte-order from dotted-decimal octets
+static constexpr uint32_t IP4(uint8_t a, uint8_t b, uint8_t c, uint8_t d) {
+    return (static_cast<uint32_t>(a) << 24) |
+           (static_cast<uint32_t>(b) << 16) |
+           (static_cast<uint32_t>(c) <<  8) |
+            static_cast<uint32_t>(d);
+}
+
+AppType ipToAppType(uint32_t ip_be) {
+    // Convert from network byte order to host order for matching
+    const uint32_t ip = PortableNet::netToHost32(ip_be);
+
+    // Helper lambda
+    auto inR = [&](uint8_t a, uint8_t b, uint8_t c, uint8_t d, uint8_t prefix) -> bool {
+        const uint32_t net = IP4(a, b, c, d);
+        if (prefix == 0) return true;
+        const uint32_t mask = prefix >= 32 ? 0xFFFFFFFFu : ~((1u << (32 - prefix)) - 1u);
+        return (ip & mask) == (net & mask);
+    };
+
+    // ── Telegram (MTProto servers) ──────────────────────────────────────────
+    // Official Telegram IP ranges: https://core.telegram.org/resources/cidr.txt
+    if (inR(91,108,4,0,   22) || // 91.108.4.0/22
+        inR(91,108,8,0,   22) || // 91.108.8.0/22
+        inR(91,108,12,0,  22) || // 91.108.12.0/22
+        inR(91,108,16,0,  22) || // 91.108.16.0/22
+        inR(91,108,20,0,  22) || // 91.108.20.0/22
+        inR(91,108,56,0,  22) || // 91.108.56.0/22 (media/CDN)
+        inR(91,108,60,0,  22) || // 91.108.60.0/22
+        inR(149,154,160,0,20) || // 149.154.160.0/20
+        inR(2,21,231,0,  24) ||  // 2.21.231.0/24
+        inR(2,22,50,0,   24))    // 2.22.50.0/24
+        return AppType::TELEGRAM;
+
+    // ── WhatsApp / Meta ─────────────────────────────────────────────────────
+    // Meta/Facebook ASN 32934 commonly used ranges
+    if (inR(31,13,24,0,  21) ||  // 31.13.24.0/21
+        inR(31,13,64,0,  18) ||  // 31.13.64.0/18
+        inR(66,220,144,0,20) ||  // 66.220.144.0/20
+        inR(69,63,176,0, 20) ||  // 69.63.176.0/20
+        inR(69,171,224,0,19) ||  // 69.171.224.0/19
+        inR(74,119,76,0, 22) ||  // 74.119.76.0/22
+        inR(102,132,96,0,20) ||  // 102.132.96.0/20
+        inR(157,240,0,0, 16) ||  // 157.240.0.0/16
+        inR(173,252,64,0,18) ||  // 173.252.64.0/18
+        inR(204,15,20,0, 22))    // 204.15.20.0/22
+        return AppType::FACEBOOK;
+
+    // ── Google ──────────────────────────────────────────────────────────────
+    if (inR(8,8,8,0,    24) ||   // 8.8.8.0/24   (DNS)
+        inR(8,8,4,0,    24) ||   // 8.8.4.0/24   (DNS)
+        inR(142,250,0,0, 15) ||  // 142.250.0.0/15
+        inR(142,251,0,0, 16) ||  // 142.251.0.0/16
+        inR(172,217,0,0, 16) ||  // 172.217.0.0/16
+        inR(173,194,0,0, 16) ||  // 173.194.0.0/16
+        inR(216,58,192,0,19) ||  // 216.58.192.0/19
+        inR(74,125,0,0,  16))    // 74.125.0.0/16
+        return AppType::GOOGLE;
+
+    // ── Cloudflare ──────────────────────────────────────────────────────────
+    if (inR(1,1,1,0,    24) ||   // 1.1.1.0/24   (DNS)
+        inR(1,0,0,0,    24) ||   // 1.0.0.0/24
+        inR(103,21,244,0,22) ||  // 103.21.244.0/22
+        inR(103,22,200,0,22) ||  // 103.22.200.0/22
+        inR(103,31,4,0, 22) ||   // 103.31.4.0/22
+        inR(104,16,0,0,  13) ||  // 104.16.0.0/13
+        inR(104,24,0,0,  14) ||  // 104.24.0.0/14
+        inR(108,162,192,0,18) || // 108.162.192.0/18
+        inR(162,158,0,0, 15) ||  // 162.158.0.0/15
+        inR(172,64,0,0,  13) ||  // 172.64.0.0/13
+        inR(173,245,48,0,20) ||  // 173.245.48.0/20
+        inR(188,114,96,0,20) ||  // 188.114.96.0/20
+        inR(190,93,240,0,20) ||  // 190.93.240.0/20
+        inR(197,234,240,0,22) || // 197.234.240.0/22
+        inR(198,41,128,0,17))    // 198.41.128.0/17
+        return AppType::CLOUDFLARE;
+
+    // ── Amazon / AWS ─────────────────────────────────────────────────────────
+    if (inR(52,0,0,0,   11) ||   // 52.0.0.0/11  (large AWS block)
+        inR(54,0,0,0,   11) ||   // 54.0.0.0/11
+        inR(18,0,0,0,   11) ||   // 18.0.0.0/11
+        inR(3,0,0,0,    11) ||   // 3.0.0.0/11
+        inR(13,32,0,0,  15) ||   // 13.32.0.0/15 (CloudFront)
+        inR(205,251,192,0,19))   // 205.251.192.0/19 (Route53/CF)
+        return AppType::AMAZON;
+
+    // ── Microsoft / Azure ───────────────────────────────────────────────────
+    if (inR(13,64,0,0,  11) ||   // 13.64.0.0/11
+        inR(20,0,0,0,    8) ||   // 20.0.0.0/8  (huge Azure block)
+        inR(40,64,0,0,  10) ||   // 40.64.0.0/10
+        inR(52,224,0,0,  11) ||  // 52.224.0.0/11
+        inR(104,40,0,0,  13))    // 104.40.0.0/13
+        return AppType::MICROSOFT;
+
+    // ── Apple / iCloud ──────────────────────────────────────────────────────
+    if (inR(17,0,0,0,    8))     // 17.0.0.0/8 (Apple owns entire /8)
+        return AppType::APPLE;
+
+    return AppType::UNKNOWN;
+}
 } // namespace DPI
